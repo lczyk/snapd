@@ -24,12 +24,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
-	"syscall"
 
 	"github.com/snapcore/snapd/dirs"
 	"github.com/snapcore/snapd/logger"
+	"github.com/snapcore/snapd/osutil"
 	"github.com/snapcore/snapd/progress"
 	"github.com/snapcore/snapd/snap"
 )
@@ -44,8 +43,8 @@ type MountUnitFlags struct {
 	StartBeforeDriversLoad bool
 }
 
-func mountPidFile(mountDir string) string {
-	return filepath.Join(dirs.SnapRunDir, "mounts", strings.ReplaceAll(mountDir, "/", "-")+".pid")
+func mountMarkerFile(mountDir string) string {
+	return filepath.Join(dirs.SnapRunDir, "mounts", strings.ReplaceAll(mountDir, "/", "-")+".marker")
 }
 
 func addMountUnit(c snap.ContainerPlaceInfo, mountFlags MountUnitFlags) error {
@@ -56,51 +55,43 @@ func addMountUnit(c snap.ContainerPlaceInfo, mountFlags MountUnitFlags) error {
 		return err
 	}
 
-	cmd := exec.Command("squashfuse", squashfsPath, whereDir)
-	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("cannot mount snap with squashfuse: %v", err)
+	// extract directly to disk -- no FUSE, no privileges needed
+	cmd := exec.Command("unsquashfs", "-d", whereDir, squashfsPath)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("cannot extract snap with unsquashfs: %v", osutil.OutputErr(output, err))
 	}
 
-	pidDir := filepath.Join(dirs.SnapRunDir, "mounts")
-	if err := os.MkdirAll(pidDir, 0755); err != nil {
+	markerDir := filepath.Join(dirs.SnapRunDir, "mounts")
+	if err := os.MkdirAll(markerDir, 0755); err != nil {
+		return err
+	}
+	if err := os.WriteFile(mountMarkerFile(whereDir), []byte("ok"), 0644); err != nil {
 		return err
 	}
 
-	pidStr := fmt.Sprintf("%d", cmd.Process.Pid)
-	if err := os.WriteFile(mountPidFile(whereDir), []byte(pidStr), 0644); err != nil {
-		return err
-	}
-
-	logger.Debugf("squashfuse mounted %s -> %s (pid %d)", squashfsPath, whereDir, cmd.Process.Pid)
+	logger.Debugf("unsquashfs extracted %s -> %s", squashfsPath, whereDir)
 	return nil
 }
 
 func removeMountUnit(mountDir string, meter progress.Meter) error {
-	pidFile := mountPidFile(mountDir)
-	data, err := os.ReadFile(pidFile)
-	if err != nil {
-		return fmt.Errorf("cannot find mount pid for %s: %v", mountDir, err)
+	marker := mountMarkerFile(mountDir)
+	if _, err := os.Stat(marker); os.IsNotExist(err) {
+		return fmt.Errorf("cannot find mount marker for %s: %v", mountDir, err)
 	}
+	os.Remove(marker)
 
-	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
-	if err != nil {
-		return fmt.Errorf("invalid pid file %s: %v", pidFile, err)
+	// remove extracted contents
+	if err := os.RemoveAll(mountDir); err != nil {
+		return err
 	}
-
-	proc, err := os.FindProcess(pid)
-	if err == nil {
-		proc.Signal(syscall.SIGTERM)
-	}
-	os.Remove(pidFile)
-
-	exec.Command("fusermount", "-u", mountDir).Run()
 
 	return nil
 }
 
 func (b Backend) RemoveContainerMountUnits(s snap.ContainerPlaceInfo, meter progress.Meter) error {
-	pidDir := filepath.Join(dirs.SnapRunDir, "mounts")
-	entries, err := os.ReadDir(pidDir)
+	markerDir := filepath.Join(dirs.SnapRunDir, "mounts")
+	entries, err := os.ReadDir(markerDir)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil
@@ -111,20 +102,7 @@ func (b Backend) RemoveContainerMountUnits(s snap.ContainerPlaceInfo, meter prog
 	prefix := strings.ReplaceAll(s.MountDir(), "/", "-")
 	for _, entry := range entries {
 		if strings.HasPrefix(entry.Name(), prefix) {
-			pidFile := filepath.Join(pidDir, entry.Name())
-			data, err := os.ReadFile(pidFile)
-			if err != nil {
-				continue
-			}
-			pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
-			if err != nil {
-				continue
-			}
-			proc, err := os.FindProcess(pid)
-			if err == nil {
-				proc.Signal(syscall.SIGTERM)
-			}
-			os.Remove(pidFile)
+			os.Remove(filepath.Join(markerDir, entry.Name()))
 		}
 	}
 	return nil

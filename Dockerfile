@@ -2,7 +2,7 @@
 
 # stage 1: build snapd binaries
 FROM ubuntu:24.04 AS builder
-RUN apt-get update && apt-get install -y golang-go libfuse3-dev squashfuse pkg-config ca-certificates git
+RUN apt-get update && apt-get install -y golang-go pkg-config ca-certificates git
 WORKDIR /build
 COPY go.mod go.sum ./
 RUN go mod download
@@ -21,7 +21,7 @@ RUN mkdir -p /seed-out/var/lib/snapd/seed \
 
 # stage 3: runtime
 FROM ubuntu:24.04
-RUN apt-get update && apt-get install -y squashfuse fuse libcap2-bin ca-certificates tini squashfs-tools && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y ca-certificates tini squashfs-tools && rm -rf /var/lib/apt/lists/*
 COPY --from=builder /out/snapd /usr/local/bin/
 COPY --from=builder /out/snap /usr/bin/
 COPY --from=builder /out/snapctl /usr/local/bin/

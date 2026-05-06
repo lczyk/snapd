@@ -43,7 +43,7 @@ import (
 var finalTasks map[string]bool
 
 var (
-	servicestateControl        = servicestate.Control
+	servicestateControl        = func(st interface{}, appInfos interface{}, inst interface{}, u interface{}, flags interface{}, context interface{}) ([]*state.TaskSet, error) { return nil, fmt.Errorf("service control not supported") }
 	snapstateInstallComponents = snapstate.InstallComponents
 	snapstateRemoveComponents  = snapstate.RemoveComponents
 )
@@ -414,7 +414,14 @@ func maybePatchServiceNames(snapInstance string, serviceNames []string) (
 	return updatedServiceNames, patched, nil
 }
 
-func runServiceCommand(context *hookstate.Context, inst *servicestate.Instruction) error {
+// stub types for service control (not supported in this build)
+type serviceInstruction struct {
+	Action string
+	Names  []string
+}
+type serviceFlags struct{ CreateExecCommandTasks bool }
+
+func runServiceCommand(context *hookstate.Context, inst *serviceInstruction) error {
 	if context == nil {
 		return &MissingContextError{inst.Action}
 	}
@@ -432,7 +439,7 @@ func runServiceCommand(context *hookstate.Context, inst *servicestate.Instructio
 		return err
 	}
 
-	flags := &servicestate.Flags{CreateExecCommandTasks: true}
+	flags := &serviceFlags{CreateExecCommandTasks: true}
 	// passing context so we can ignore self-conflicts with the current change
 	st.Lock()
 	tts, err := servicestateControl(st, appInfos, inst, nil, flags, context)

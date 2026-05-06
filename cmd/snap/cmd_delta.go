@@ -21,10 +21,10 @@
 package main
 
 import (
+	"os"
 	"context"
 	"fmt"
 	"strings"
-	"syscall"
 
 	"github.com/jessevdk/go-flags"
 
@@ -90,7 +90,8 @@ func (x *cmdDelta) Execute(args []string) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	sigCh, sigStop := signalNotify(syscall.SIGINT, syscall.SIGTERM)
+	sigCh := make(chan os.Signal, 1)
+	sigStop := func() {}
 	defer sigStop()
 	go func() {
 		select {

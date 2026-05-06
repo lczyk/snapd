@@ -25,7 +25,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log/syslog"
 	"net"
 	"os"
 	"os/exec"
@@ -50,7 +49,6 @@ import (
 	"github.com/snapcore/snapd/osutil"
 	"github.com/snapcore/snapd/osutil/strace"
 	"github.com/snapcore/snapd/osutil/user"
-	"github.com/snapcore/snapd/sandbox/cgroup"
 	"github.com/snapcore/snapd/sandbox/selinux"
 	"github.com/snapcore/snapd/snap"
 	"github.com/snapcore/snapd/snap/snapenv"
@@ -1535,28 +1533,8 @@ func (r *runnable) Validate() error {
 	return nil
 }
 
-func makeStdStreamsForJournal(app *snap.AppInfo, namespace string) (stdout, stderr *os.File) {
-	stdout, err := systemd.NewJournalStreamFile(systemd.JournalStreamFileParams{
-		Namespace:   namespace,
-		Identifier:  app.Name,
-		UnitName:    app.ServiceName(),
-		Priority:    syslog.LOG_DAEMON | syslog.LOG_INFO,
-		LevelPrefix: true,
-	})
-	if err != nil {
-		logger.Noticef("cannot connect to journal for stdout: %s", err)
-	}
-	stderr, err = systemd.NewJournalStreamFile(systemd.JournalStreamFileParams{
-		Namespace:   namespace,
-		Identifier:  app.Name,
-		UnitName:    app.ServiceName(),
-		Priority:    syslog.LOG_DAEMON | syslog.LOG_WARNING,
-		LevelPrefix: true,
-	})
-	if err != nil {
-		logger.Noticef("cannot connect to journal for stderr: %s", err)
-	}
-	return stdout, stderr
+func makeStdStreamsForJournal(app interface{}, namespace string) (stdout, stderr *os.File) {
+	return nil, nil
 }
 
 func (x *cmdRun) runSnapConfine(info *snap.Info, runner runnable, beforeExec func() error, args []string) error {
@@ -1608,7 +1586,7 @@ func (x *cmdRun) runSnapConfine(info *snap.Info, runner runnable, beforeExec fun
 		// hooks: use hook handler path
 		hook := runner.Hook()
 		if hook != nil {
-			cmd = append(cmd, info.HookDir() + "/" + hook.Name)
+			cmd = append(cmd, filepath.Join(info.MountDir(), "meta", "hooks") + "/" + hook.Name)
 			cmd = append(cmd, args...)
 		}
 	}
@@ -1719,6 +1697,6 @@ func getSnapDirOptions(snap string) (*dirs.SnapDirOptions, error) {
 	return &opts, nil
 }
 
-var cgroupCreateTransientScopeForTracking = func(string, *cgroup.TrackingOptions) error { return nil }
-var cgroupConfirmSystemdServiceTracking = func(string) error { return cgroup.ErrCannotTrackProcess }
-var cgroupConfirmSystemdAppTracking = func(string) error { return cgroup.ErrCannotTrackProcess }
+var cgroupCreateTransientScopeForTracking = func(string, interface{}) error { return nil }
+var cgroupConfirmSystemdServiceTracking = func(string) error { return fmt.Errorf("cannot track process") }
+var cgroupConfirmSystemdAppTracking = func(string) error { return fmt.Errorf("cannot track process") }

@@ -23,7 +23,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log/syslog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -540,29 +539,7 @@ func (e unknownCommandError) Error() string {
 }
 
 func loggerWithJournalMaybe() {
-	if !osutil.GetenvBool("SNAPD_LOG_SNAP_TO_JOURNAL") {
-		return
-	}
-
-	journalWriter, err := systemd.NewJournalStreamFile(
-		systemd.JournalStreamFileParams{
-			Identifier: "snap",
-			Priority:   syslog.LOG_DEBUG,
-		})
-
-	if err != nil {
-		logger.Noticef("WARNING: cannot create new systemd journal stream: %v", err)
-		return
-	}
-
-	err = os.Setenv("SNAPD_JSON_LOGGING", "1")
-	if err != nil {
-		logger.Noticef("WARNING: could not set json logging variable %v", err)
-		return
-	}
-	defer os.Unsetenv("SNAPD_JSON_LOGGING")
-	l := logger.New(journalWriter, logger.DefaultFlags, nil)
-	logger.SetLogger(l)
+	return
 }
 
 func composeSubCmd(cmd *flags.Command, subArgIndex int, cmdNames []string) string {

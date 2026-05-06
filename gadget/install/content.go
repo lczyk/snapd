@@ -202,49 +202,8 @@ func writeFilesystemContent(laidOut *gadget.LaidOutStructure, kSnapInfo *KernelS
 }
 
 func writeContainerMountUnit(destRoot string, cpi snap.ContainerPlaceInfo) error {
-	// Create mount unit to make the kernel snap content available from
-	// the drivers tree.
-	squashfsPath := dirs.StripRootDir(cpi.MountFile())
-	whereDir := dirs.StripRootDir(cpi.MountDir())
-
-	hostFsType, options := systemd.HostFsTypeAndMountOptions("squashfs")
-	mountOptions := &systemd.MountUnitOptions{
-		Lifetime:                 systemd.Persistent,
-		Description:              cpi.MountDescription(),
-		What:                     squashfsPath,
-		Where:                    whereDir,
-		Fstype:                   hostFsType,
-		Options:                  options,
-		MountUnitType:            systemd.BeforeDriversLoadMountUnit,
-		RootDir:                  destRoot,
-		PreventRestartIfModified: true,
-	}
-	unitFileName, _, err := systemd.EnsureMountUnitFileContent(mountOptions)
-	if err != nil {
-		return err
-	}
-	// Make sure the unit is activated
-	unitFilePath := filepath.Join(dirs.SnapServicesDir, unitFileName)
-	for _, target := range []string{"multi-user.target.wants", "snapd.mounts.target.wants"} {
-		linkDir := filepath.Join(dirs.SnapServicesDirUnder(destRoot), target)
-		if err := os.MkdirAll(linkDir, 0755); err != nil {
-			return err
-		}
-		linkPath := filepath.Join(linkDir, unitFileName)
-		if err := os.Symlink(unitFilePath, linkPath); err != nil {
-			if !os.IsExist(err) {
-				return err
-			}
-
-			// if we already have a file at linkPath, make sure that it is a
-			// symlink that points to unitFilePath
-			if err := checkLinkPointsTo(linkPath, unitFilePath); err != nil {
-				return err
-			}
-		}
-	}
-
-	return nil
+// stub: systemd mount units not available
+return nil
 }
 
 func checkLinkPointsTo(linkPath string, expectedTarget string) error {

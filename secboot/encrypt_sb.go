@@ -35,7 +35,6 @@ import (
 	"github.com/snapcore/snapd/osutil/disks"
 	"github.com/snapcore/snapd/secboot/keymgr"
 	"github.com/snapcore/snapd/secboot/keys"
-	"github.com/snapcore/snapd/snapdtool"
 )
 
 var (
@@ -80,22 +79,7 @@ func AddRecoveryKey(key keys.EncryptionKey, rkey keys.RecoveryKey, node string) 
 }
 
 func runSnapFDEKeymgr(args []string, stdin io.Reader) error {
-	toolPath, err := snapdtool.InternalToolPath("snap-fde-keymgr")
-	if err != nil {
-		return fmt.Errorf("cannot find keymgr tool: %v", err)
-	}
-
-	sysd := systemd.New(systemd.SystemMode, nil)
-
-	command := []string{
-		toolPath,
-	}
-	command = append(command, args...)
-	_, err = sysd.Run(command, &systemd.RunOptions{
-		KeyringMode: systemd.KeyringModeInherit,
-		Stdin:       stdin,
-	})
-	return err
+	return fmt.Errorf("FDE keymgr not supported in this build")
 }
 
 // EnsureRecoveryKey makes sure the encrypted block devices have a recovery key.

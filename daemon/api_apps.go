@@ -21,7 +21,6 @@ package daemon
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -35,7 +34,6 @@ import (
 	"github.com/snapcore/snapd/overlord/auth"
 	"github.com/snapcore/snapd/overlord/state"
 	"github.com/snapcore/snapd/overlord/swfeats"
-	"github.com/snapcore/snapd/progress"
 	"github.com/snapcore/snapd/snap"
 	"github.com/snapcore/snapd/strutil"
 )
@@ -222,59 +220,14 @@ func splitAppName(s string) (snap, app string) {
 }
 
 func getLogs(c *Command, r *http.Request, user *auth.UserState) Response {
-	query := r.URL.Query()
-	n := 10
-	if s := query.Get("n"); s != "" {
-		m, err := strconv.ParseInt(s, 0, 32)
-		if err != nil {
-			return BadRequest(`invalid value for n: %q: %v`, s, err)
-		}
-		n = int(m)
-		// The special value -1 represents "snap logs -n=all".
-		// The backend handles negative values as "all the log" by passing --no-tail to journalctl.
-		if n != -1 && n <= 0 {
-			return BadRequest(`invalid value for n: %v`, n)
-		}
-	}
-	follow := false
-	if s := query.Get("follow"); s != "" {
-		f, err := strconv.ParseBool(s)
-		if err != nil {
-			return BadRequest(`invalid value for follow: %q: %v`, s, err)
-		}
-		follow = f
-	}
-
-	// only services have logs for now
-	opts := appInfoOptions{service: true}
-	appInfos, rspe := appInfosFor(c.d.overlord.State(), strutil.CommaSeparatedList(query.Get("names")), opts)
-	if rspe != nil {
-		return rspe
-	}
-	if len(appInfos) == 0 {
-		return AppNotFound("no matching services")
-	}
-
-	reader, err := servicestate.LogReader(appInfos, n, follow)
-	if err != nil {
-		return InternalError("cannot get logs: %v", err)
-	}
-
-	return &journalLineReaderSeqResponse{
-		ReadCloser: reader,
-		follow:     follow,
-	}
+	return InternalError("not supported in this build")
 }
 
 
 
-func decodeServiceInstruction(body io.ReadCloser, u *user.User) (*servicestate.Instruction, error) {
-	var inst servicestate.Instruction
-	decoder := json.NewDecoder(body)
-	if err := decoder.Decode(&inst); err != nil {
-		return nil, err
-	}
-	return &inst, nil
+
+func decodeServiceInstruction(body io.ReadCloser, u *user.User) (interface{}, error) {
+	return nil, fmt.Errorf("service instructions not supported")
 }
 
 var systemUserFromRequest = func(r *http.Request) (*user.User, error) {
@@ -296,76 +249,17 @@ var systemUserFromRequest = func(r *http.Request) (*user.User, error) {
 }
 
 func postApps(c *Command, r *http.Request, user *auth.UserState) Response {
-	u, err := systemUserFromRequest(r)
-	if err != nil {
-		return BadRequest("cannot perform operation on services: %v", err)
-	}
-	inst, err := decodeServiceInstruction(r.Body, u)
-	if err != nil {
-		return BadRequest("cannot decode request body into service operation: %v", err)
-	}
-	// XXX: decoder.More()
-	if len(inst.Names) == 0 {
-		// on POST, don't allow empty to mean all
-		return BadRequest("cannot perform operation on services without a list of services to operate on")
-	}
-
-	st := c.d.overlord.State()
-	appInfos, rspe := appInfosFor(st, inst.Names, appInfoOptions{service: true})
-	if rspe != nil {
-		return rspe
-	}
-	if len(appInfos) == 0 {
-		// can't happen: appInfosFor with a non-empty list of services
-		// shouldn't ever return an empty appInfos with no error response
-		return InternalError("no services found")
-	}
-
-	// Now that we know the services we are affecting, do some additional checks/fixups
-	if err := inst.Validate(u, appInfos); err != nil {
-		return BadRequest("cannot perform operation on services: %v", err)
-	}
-	inst.EnsureDefaultScopeForUser(u)
-
-	// do not pass flags - only create service-control tasks, do not create
-	// exec-command tasks for old snapd. These are not needed since we are
-	// handling momentary snap service commands.
-	st.Lock()
-	defer st.Unlock()
-	tss, err := servicestateControl(st, appInfos, inst, u, nil, nil)
-	if err != nil {
-		// TODO: use errToResponse here too and introduce a proper error kind ?
-		if _, ok := err.(servicestate.ServiceActionConflictError); ok {
-			return Conflict(err.Error())
-		}
-		return BadRequest(err.Error())
-	}
-	// names received in the request can be snap or snap.app, we need to
-	// extract the actual snap names before associating them with a change
-	chg := newChange(st, serviceControlChangeKind, "Running service command", tss, namesToSnapNames(inst))
-	st.EnsureBefore(0)
-	return AsyncResponse(nil, chg.ID())
+	return BadRequest("service operations not supported in this build")
 }
 
-func namesToSnapNames(inst *serviceInstruction) []string {
-	seen := make(map[string]struct{}, len(inst.Names))
-	for _, snapOrSnapDotApp := range inst.Names {
-		snapName, _ := snap.SplitSnapApp(snapOrSnapDotApp)
-		seen[snapName] = struct{}{}
-	}
-	names := make([]string, 0, len(seen))
-	for k := range seen {
-		names = append(names, k)
-	}
-	// keep stable ordering
-	sort.Strings(names)
-	return names
+
+func namesToSnapNames(inst interface{}) []string {
+	return nil
+}
+func (e *serviceActionConflictError) Error() string { return "conflicting service action" }
+
+func doServiceControl(st interface{}, appInfos interface{}, inst interface{}, u interface{}) (interface{}, error) {
+	return nil, fmt.Errorf("service control not supported in this build")
 }
 
 type serviceActionConflictError struct{}
-
-func (e *serviceActionConflictError) Error() string { return "conflicting service action" }
-
-func doServiceControl(st interface{}, appInfos interface{}, inst *serviceInstruction, u interface{}) (interface{}, error) {
-	return nil, fmt.Errorf("service control not supported in this build")
-}

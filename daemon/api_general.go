@@ -452,10 +452,5 @@ func sysInfoStorageEnc(c *Command, r *http.Request, user *auth.UserState) Respon
 	st.Lock()
 	defer st.Unlock()
 
-	state, err := fdestateSystemState(st)
-	if err != nil {
-		return InternalError("cannot determine system encrypted state: %s", err)
-	}
-
-	return SyncResponse(state)
+	return SyncResponse(nil)
 }

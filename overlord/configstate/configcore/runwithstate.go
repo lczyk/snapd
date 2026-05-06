@@ -46,7 +46,6 @@ func init() {
 	addWithStateHandler(validateProxyStore, handleProxyStore, nil)
 
 	// resilience.vitality-hint
-	addWithStateHandler(validateVitalitySettings, handleVitalityConfiguration, nil)
 
 	// XXX: this should become a FSOnlyHandler. We need to
 	// add/implement Changes() to the ConfGetter interface
@@ -68,13 +67,10 @@ func init() {
 	addWithStateHandler(validateCmdlineAppend, handleCmdlineAppend, &flags{modeenvOnlyConfig: true})
 
 	// debug.snapd.log
-	addWithStateHandler(validateDebugSnapdLogSetting, handleDebugSnapdLogConfiguration, nil)
 
 	// debug.systemd.log-level
-	addWithStateHandler(validateDebugSystemdLogLevelSetting, handleDebugSystemdLogLevelConfiguration, coreOnly)
 
 	// experimental.apparmor-prompting
-	addWithStateHandler(nil, doExperimentalApparmorPromptingDaemonRestart, nil)
 
 	// interface.*.allow-auto-connection
 	addWithStateHandler(validateAllowAutoConnectionValue, nil, &flags{validatedOnlyStateConfig: true})

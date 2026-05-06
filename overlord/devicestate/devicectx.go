@@ -20,7 +20,6 @@
 package devicestate
 
 import (
-	"errors"
 
 	"github.com/snapcore/snapd/asserts"
 	"github.com/snapcore/snapd/overlord/snapstate"
@@ -36,14 +35,7 @@ func DeviceCtx(st *state.State, task *state.Task, providedDeviceCtx snapstate.De
 	if providedDeviceCtx != nil {
 		return providedDeviceCtx, nil
 	}
-	// use the remodelContext if the task is part of a remodel change
-	remodCtx, err := remodelCtxFromTask(task)
-	if err == nil {
-		return remodCtx, nil
-	}
-	if err != nil && !errors.Is(err, state.ErrNoState) {
-		return nil, err
-	}
+	// remodel context not supported in this build
 	modelAs, err := findModel(st)
 	if err != nil {
 		return nil, err

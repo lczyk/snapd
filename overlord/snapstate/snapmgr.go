@@ -1462,12 +1462,8 @@ func MockEnsuredMountsUpdated(m *SnapManager, ensured bool) (restore func()) {
 	}
 }
 
-func getSystemD() systemd.Systemd {
-	if snapdenv.Preseeding() {
-		return systemd.NewEmulationMode(dirs.GlobalRootDir)
-	} else {
-		return systemd.New(systemd.SystemMode, nil)
-	}
+func getSystemD() interface{} {
+	return nil
 }
 
 func (m *SnapManager) ensureMountsUpdated() error {
@@ -1488,66 +1484,11 @@ func (m *SnapManager) ensureMountsUpdated() error {
 		return nil
 	}
 
-	allStates, err := All(m.state)
-	if err != nil && !errors.Is(err, state.ErrNoState) {
-		return err
-	}
+	_, _ = All(m.state)
 
 	logger.Trace("ensure", "manager", "SnapManager", "func", "ensureMountsUpdated")
 
-	if len(allStates) != 0 {
-		sysd := getSystemD()
-
-		for _, snapSt := range allStates {
-			info, err := snapSt.CurrentInfo()
-			if err != nil {
-				return err
-			}
-			dev, err := DeviceCtx(m.state, nil, nil)
-			// Ignore error if model assertion not yet known
-			if err != nil && !errors.Is(err, state.ErrNoState) {
-				return err
-			}
-			squashfsPath := dirs.StripRootDir(info.MountFile())
-			whereDir := dirs.StripRootDir(info.MountDir())
-			// Ensure mount files, but do not restart mount units
-			// of snap files if the units are modified as services
-			// in the snap have a Requires= on them. Otherwise the
-			// services would be restarted.
-			//   This is especially relevant for the snapd snap as if
-			// this happens, it would end up in a bad state after
-			// an update.
-			// TODO Ensure mounts of snap components as well
-			// TODO refactor so the check for kernel type is not repeated
-			// in the installation case
-			snapType, _ := snapSt.Type()
-			// We cannot ensure for this type yet as the mount unit
-			// flags depend on the model in this case.
-			if snapType == snap.TypeKernel && dev == nil {
-				continue
-			}
-
-			// We need early mounts only for UC20+/hybrid, also 16.04
-			// systemd seems to be buggy if we enable this.
-			startBeforeDriversLoad := snapType == snap.TypeKernel && dev.HasModeenv()
-
-			mountOptions := &systemd.MountUnitOptions{
-				Lifetime:                 systemd.Persistent,
-				Description:              info.MountDescription(),
-				What:                     squashfsPath,
-				Where:                    whereDir,
-				PreventRestartIfModified: true,
-			}
-
-			if err := sysd.ConfigureMountUnitOptions(mountOptions, "squashfs", startBeforeDriversLoad); err != nil {
-				return err
-			}
-
-			if _, err := sysd.EnsureMountUnitFile(mountOptions); err != nil {
-				return err
-			}
-		}
-	}
+ // stub: systemd mount units not available
 
 	m.ensuredMountsUpdated = true
 

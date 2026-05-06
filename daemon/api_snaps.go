@@ -31,6 +31,7 @@ import (
 
 	"github.com/snapcore/snapd/asserts/snapasserts"
 	"github.com/snapcore/snapd/client"
+	"github.com/snapcore/snapd/client/clientutil"
 	"github.com/snapcore/snapd/i18n"
 	"github.com/snapcore/snapd/logger"
 	"github.com/snapcore/snapd/overlord/assertstate"
@@ -116,7 +117,7 @@ func getSnapInfo(c *Command, r *http.Request, user *auth.UserState) Response {
 		return InternalError("%v", err)
 	}
 
-	sd := servicestate.NewStatusDecorator(progress.Null)
+	sd := clientutil.StatusDecorator(nil)
 
 	result := injectSnapIconURL(mapLocal(about, sd))
 
@@ -1307,7 +1308,7 @@ func getSnapsInfo(c *Command, r *http.Request, user *auth.UserState) Response {
 
 	results := make([]*json.RawMessage, len(found))
 
-	sd := servicestate.NewStatusDecorator(progress.Null)
+	sd := clientutil.StatusDecorator(nil)
 	for i, x := range found {
 		name := x.info.InstanceName()
 		rev := x.info.Revision

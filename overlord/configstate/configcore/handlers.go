@@ -67,7 +67,6 @@ func init() {
 	coreOnly := &flags{coreOnlyConfig: true}
 
 	// watchdog.{runtime-timeout,shutdown-timeout}
-	addFSOnlyHandler(validateWatchdogOptions, handleWatchdogConfiguration, coreOnly)
 
 	// Export experimental.* flags to a place easily accessible from snapd helpers.
 	addFSOnlyHandler(validateExperimentalSettings, doExportExperimentalFlags, &flags{earlyConfigFilter: earlyExperimentalSettingsFilter})
@@ -76,28 +75,22 @@ func init() {
 	addFSOnlyHandler(validateNetworkSettings, handleNetworkConfiguration, coreOnly)
 
 	// service.*.disable
-	addFSOnlyHandler(validateServiceConfiguration, handleServiceConfiguration, coreOnly)
 
 	// system.power-key-action
 	addFSOnlyHandler(nil, handlePowerButtonConfiguration, coreOnly)
 
 	// system.disable-ctrl-alt-del
-	addFSOnlyHandler(nil, handleCtrlAltDelConfiguration, coreOnly)
 
 	// pi-config.*
 	addFSOnlyHandler(nil, handlePiConfiguration, coreOnly)
 
 	// system.disable-backlight-service
-	addFSOnlyHandler(validateBacklightServiceSettings, handleBacklightServiceConfiguration, coreOnly)
 
 	// swap.size
-	addFSOnlyHandler(validateSystemSwapConfiguration, handlesystemSwapConfiguration, coreOnly)
 
 	// system.kernel.printk.console-loglevel
-	addFSOnlyHandler(validateSysctlOptions, handleSysctlConfiguration, coreOnly)
 
 	// journal.persistent
-	addFSOnlyHandler(validateJournalSettings, handleJournalConfiguration, coreOnly)
 
 	// system.timezone
 	addFSOnlyHandler(validateTimezoneSettings, handleTimezoneConfiguration, coreOnly)

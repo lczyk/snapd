@@ -21,14 +21,13 @@ package snapstate
 
 import (
 	"fmt"
-	"path/filepath"
 	"sort"
 	"strings"
 
 	"github.com/snapcore/snapd/cmd/snaplock/runinhibit"
-	"github.com/snapcore/snapd/osutil"
 	"github.com/snapcore/snapd/overlord/snapstate/backend"
 	"github.com/snapcore/snapd/overlord/state"
+	"github.com/snapcore/snapd/osutil"
 	"github.com/snapcore/snapd/sandbox/cgroup"
 	"github.com/snapcore/snapd/snap"
 	"github.com/snapcore/snapd/strutil"
@@ -108,21 +107,8 @@ type BusySnapError struct {
 // The returned value contains the instance name of the snap as well as, if possible,
 // information relevant for desktop notification services, such as application name
 // and the snapd-generated desktop file name.
-func (err *BusySnapError) PendingSnapRefreshInfo() *userclient.PendingSnapRefreshInfo {
-	refreshInfo := &userclient.PendingSnapRefreshInfo{
-		InstanceName: err.SnapInfo.InstanceName(),
-	}
-	for _, appName := range err.busyAppNames {
-		if app, ok := err.SnapInfo.Apps[appName]; ok {
-			path := app.DesktopFile()
-			if osutil.FileExists(path) {
-				refreshInfo.BusyAppName = appName
-				refreshInfo.BusyAppDesktopEntry = strings.SplitN(filepath.Base(path), ".", 2)[0]
-				break
-			}
-		}
-	}
-	return refreshInfo
+func (err *BusySnapError) PendingSnapRefreshInfo() interface{} {
+	return nil
 }
 
 // Error formats an error string describing what is running.
@@ -214,3 +200,9 @@ func softCheckNothingRunningForRefresh(st *state.State, snapst *SnapState, snaps
 		return err
 	})
 }
+
+
+type PendingSnapRefreshInfoStub struct {
+	InstanceName string
+}
+func (s *PendingSnapRefreshInfoStub) PendingSnapRefreshInfo() interface{} { return s }

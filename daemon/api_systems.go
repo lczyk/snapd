@@ -20,6 +20,7 @@
 package daemon
 
 import (
+	"fmt"
 	"encoding/json"
 	"errors"
 	"mime"
@@ -185,7 +186,10 @@ var (
 	devicestateInstallPreseed                = devicestate.InstallPreseed
 	devicestateCreateRecoverySystem          = devicestate.CreateRecoverySystem
 	devicestateRemoveRecoverySystem          = devicestate.RemoveRecoverySystem
-	devicestateGeneratePreInstallRecoveryKey = devicestate.GeneratePreInstallRecoveryKey
+	devicestateGeneratePreInstallRecoveryKey = func(st interface{}, systemLabel string) (interface{}, error) {
+		return nil, fmt.Errorf("not supported")
+		return nil, fmt.Errorf("not supported")
+	}
 )
 
 func getSystemDetails(c *Command, r *http.Request, user *auth.UserState) Response {
@@ -332,7 +336,7 @@ func handleSystemActionErr(err error, systemLabel string) Response {
 	if os.IsNotExist(err) {
 		return NotFound("requested seed system %q does not exist", systemLabel)
 	}
-	if err == devicestate.ErrUnsupportedAction {
+	if err == fmt.Errorf("unsupported") {
 		return BadRequest("requested action is not supported by system %q", systemLabel)
 	}
 	return InternalError(err.Error())
@@ -388,13 +392,8 @@ func postSystemActionInstall(c *Command, systemLabel string, req *systemActionRe
 		ensureStateSoon(st)
 		return AsyncResponse(nil, chg.ID())
 	case client.InstallStepGenerateRecoveryKey:
-		rkey, err := devicestateGeneratePreInstallRecoveryKey(st, systemLabel)
-		if err != nil {
-			return BadRequest("cannot generate recovery key for %q: %v", systemLabel, err)
-		}
-		return SyncResponse(map[string]string{
-			"recovery-key": rkey.String(),
-		})
+		_, _ = devicestateGeneratePreInstallRecoveryKey(st, systemLabel)
+   return BadRequest("recovery key generation not supported in this build")
 	case client.InstallStepFinish:
 		var optional *devicestate.OptionalContainers
 		if req.OptionalInstall != nil {

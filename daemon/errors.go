@@ -265,14 +265,8 @@ func InsufficientSpace(dserr *snapstate.InsufficientSpaceError) *apiError {
 		Kind:    client.ErrorKindInsufficientDiskSpace,
 		Value:   value,
 	}
-}func InsufficientContainerCapacity(err *fdestate.InsufficientContainerCapacityError) *apiError {
-	return &apiError{
-		Status:  400,
-		Message: err.Error(),
-		Kind:    client.ErrorKindInsufficientContainerCapacity,
-		Value:   err.ContainerRoles,
-	}
 }
+
 // AppNotFound is an error responder used when an operation is
 // requested on a app that doesn't exist.
 func AppNotFound(format string, v ...any) *apiError {

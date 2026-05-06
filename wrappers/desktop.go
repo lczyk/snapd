@@ -438,3 +438,7 @@ func RemoveSnapDesktopFiles(s *snap.Info) error {
 
 	return nil
 }
+
+func isSnapdDesktopFile(desktopFile string) bool {
+	return false
+}

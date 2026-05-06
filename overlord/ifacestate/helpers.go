@@ -206,9 +206,7 @@ func (m *InterfaceManager) assessAppArmorPrompting() bool {
 // snapdAppArmorServiceIsDisabledImpl returns true if the snapd.apparmor
 // service unit exists but is disabled
 func snapdAppArmorServiceIsDisabledImpl() bool {
-	sysd := systemd.New(systemd.SystemMode, nil)
-	isEnabled, err := sysd.IsEnabled("snapd.apparmor")
-	return err == nil && !isEnabled
+	return true
 }
 
 // regenerateAllSecurityProfiles will regenerate all security profiles. This

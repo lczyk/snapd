@@ -20,7 +20,6 @@
 package daemon
 
 import (
-	"bufio"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -285,51 +284,9 @@ type journalLineReaderSeqResponse struct {
 }
 
 func (rr *journalLineReaderSeqResponse) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json-seq")
-
-	flusher, hasFlusher := w.(http.Flusher)
-
-	var err error
-	dec := json.NewDecoder(rr)
-	writer := bufio.NewWriter(w)
-	enc := json.NewEncoder(writer)
-	for {
-		var log systemd.Log
-		if err = dec.Decode(&log); err != nil {
-			break
-		}
-
-		writer.WriteByte(0x1E) // RS -- see ascii(7), and RFC7464
-
-		// ignore the error...
-		t, _ := log.Time()
-		if err = enc.Encode(client.Log{
-			Timestamp: t,
-			Message:   log.Message(),
-			SID:       log.SID(),
-			PID:       log.PID(),
-		}); err != nil {
-			break
-		}
-
-		if rr.follow {
-			if e := writer.Flush(); e != nil {
-				break
-			}
-			if hasFlusher {
-				flusher.Flush()
-			}
-		}
-	}
-	if err != nil && err != io.EOF {
-		fmt.Fprintf(writer, `\x1E{"error": %q}\n`, err)
-		logger.Noticef("cannot stream response; problem reading: %v", err)
-	}
-	if err := writer.Flush(); err != nil {
-		logger.Noticef("cannot stream response; problem writing: %v", err)
-	}
-	rr.Close()
+	InternalError("journal log access not supported").ServeHTTP(w, r)
 }
+
 
 type assertResponse struct {
 	assertions []asserts.Assertion

@@ -22,7 +22,6 @@ package ifacestate
 import (
 	"errors"
 	"fmt"
-	"path"
 	"reflect"
 	"sort"
 	"strconv"
@@ -32,7 +31,6 @@ import (
 
 	"gopkg.in/tomb.v2"
 
-	"github.com/snapcore/snapd/dirs"
 	"github.com/snapcore/snapd/i18n"
 	"github.com/snapcore/snapd/interfaces"
 	"github.com/snapcore/snapd/interfaces/hotplug"
@@ -52,22 +50,7 @@ import (
 
 var snapstateFinishRestart = snapstate.FinishRestart
 
-// journalQuotaLayout returns the necessary journal quota mount layouts
-// to mimick what systemd does for services with log namespaces.
-func journalQuotaLayout(quotaGroup *quota.Group) []snap.Layout {
-	if quotaGroup.JournalLimit == nil {
-		return nil
-	}
 
-	// bind mount the journal namespace folder on top of the journal folder
-	// /run/systemd/journal.<ns> -> /run/systemd/journal
-	layouts := []snap.Layout{{
-		Bind: path.Join(dirs.SnapSystemdRunDir, fmt.Sprintf("journal.%s", quotaGroup.JournalNamespaceName())),
-		Path: path.Join(dirs.SnapSystemdRunDir, "journal"),
-		Mode: 0755,
-	}}
-	return layouts
-}
 
 // getExtraLayouts helper function to dynamically calculate the extra mount layouts for
 // a snap instance. These are the layouts which can change during the lifetime of a snap

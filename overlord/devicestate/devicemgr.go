@@ -48,7 +48,6 @@ import (
 	"github.com/snapcore/snapd/overlord/devicestate/internal"
 	"github.com/snapcore/snapd/overlord/hookstate"
 	"github.com/snapcore/snapd/overlord/install"
-	"github.com/snapcore/snapd/overlord/restart"
 	"github.com/snapcore/snapd/overlord/snapstate"
 	"github.com/snapcore/snapd/overlord/state"
 	"github.com/snapcore/snapd/overlord/storecontext"
@@ -249,49 +248,22 @@ func Manager(s *state.State, hookManager *hookstate.HookManager, runner *state.T
 		return nil, err
 	}
 
-	hookManager.Register(regexp.MustCompile("^prepare-device$"), newBasicHookStateHandler)
-	hookManager.Register(regexp.MustCompile("^install-device$"), newBasicHookStateHandler)
-	hookManager.Register(regexp.MustCompile("^prepare-serial-request$"), newBasicHookStateHandler)
 
-	runner.AddHandler("generate-device-key", m.doGenerateDeviceKey, nil)
-	runner.AddHandler("request-serial", m.doRequestSerial, nil)
 	// Mark-preseeded touches and records the system-key, ensure that it does
 	// not run in parallel with other tasks touching the system-key
 	runner.AddHandler("mark-preseeded", m.doMarkPreseeded, nil)
 	runner.AddHandler("mark-seeded", m.doMarkSeeded, nil)
-	runner.AddHandler("setup-ubuntu-save", m.doSetupUbuntuSave, nil)
-	runner.AddHandler("setup-run-system", m.doSetupRunSystem, nil)
-	runner.AddHandler("factory-reset-run-system", m.doFactoryResetRunSystem, nil)
-	runner.AddHandler("restart-system-to-run-mode", m.doRestartSystemToRunMode, nil)
-	runner.AddHandler("prepare-remodeling", m.doPrepareRemodeling, nil)
-	runner.AddCleanup("prepare-remodeling", m.cleanupRemodel)
 	// this *must* always run last and finalizes a remodel
-	runner.AddHandler("set-model", m.doSetModel, nil)
-	runner.AddCleanup("set-model", m.cleanupRemodel)
 	// There is no undo for successful gadget updates. The system is
 	// rebooted during update, if it boots up to the point where snapd runs
 	// we deem the new assets (be it bootloader or firmware) functional. The
 	// deployed boot assets must be backward compatible with reverted kernel
 	// or gadget snaps. There are no further changes to the boot assets,
 	// unless a new gadget update is deployed.
-	runner.AddHandler("update-gadget-assets", m.doUpdateGadgetAssets, nil)
 	// There is no undo handler for successful boot config update. The
 	// config assets are assumed to be always backwards compatible.
-	runner.AddHandler("update-managed-boot-config", m.doUpdateManagedBootConfig, nil)
 	// kernel command line updates from a gadget supplied file
-	runner.AddHandler("update-gadget-cmdline", m.doUpdateGadgetCommandLine, m.undoUpdateGadgetCommandLine)
-	// recovery systems
-	runner.AddHandler("remove-recovery-system", m.doRemoveRecoverySystem, nil)
-	runner.AddHandler("create-recovery-system", m.doCreateRecoverySystem, m.undoCreateRecoverySystem)
-	runner.AddCleanup("create-recovery-system", m.cleanupRecoverySystem)
-	runner.AddHandler("finalize-recovery-system", m.doFinalizeTriedRecoverySystem, m.undoFinalizeTriedRecoverySystem)
-	runner.AddCleanup("finalize-recovery-system", m.cleanupRecoverySystem)
-
-	// used from the install API
-	// TODO: use better task names that are close to our usual pattern
-	runner.AddHandler("install-finish", m.doInstallFinish, nil)
-	runner.AddHandler("install-setup-storage-encryption", m.doInstallSetupStorageEncryption, nil)
-	runner.AddHandler("install-preseed", m.doInstallPreseed, nil)
+	// recovery and install handlers removed - out of scope for no-systemd prototype
 
 	runner.AddBlocked(gadgetUpdateBlocked)
 	runner.AddBlocked(removeRecoverySystemBlocked)
@@ -683,15 +655,11 @@ func (m *DeviceManager) ensureOperational() error {
 		return fmt.Errorf("internal error: core device brand and model are set but there is no model assertion")
 	}
 
-	willRequestSerial, err := shouldRequestSerial(m.state, gadget)
-	if err != nil {
-		return err
-	}
+ willRequestSerial := false
 
 	// if we should not fetch the device serial (either store.access or
 	// device.service.access is set to offline), and we have already generated a
 	// device key, we can return early. otherwise, we need to run the
-	// generate-device-key task
 	if !willRequestSerial && device.KeyID != "" {
 		return nil
 	}
@@ -726,11 +694,10 @@ func (m *DeviceManager) ensureOperational() error {
 
 		}
 
-		gadgetInfo, err := snapstate.CurrentInfo(m.state, gadget)
+		_, err := snapstate.CurrentInfo(m.state, gadget)
 		if err != nil {
 			return err
 		}
-		hasPrepareDeviceHook = (gadgetInfo.Hooks["prepare-device"] != nil)
 	}
 
 	if device.KeyID == "" && model.Grade() != "" {
@@ -766,26 +733,14 @@ func (m *DeviceManager) ensureOperational() error {
 
 	var prepareDevice *state.Task
 	if hasPrepareDeviceHook {
-		summary := i18n.G("Run prepare-device hook")
 		hooksup := &hookstate.HookSetup{
 			Snap: gadget,
-			Hook: "prepare-device",
 		}
-		prepareDevice = hookstate.HookTask(m.state, summary, hooksup, nil)
+		prepareDevice = hookstate.HookTask(m.state, i18n.G("Initialize device"), hooksup, nil)
 		tasks = append(tasks, prepareDevice)
 	}
 
-	genKey := m.state.NewTask("generate-device-key", i18n.G("Generate device key"))
-	if prepareDevice != nil {
-		genKey.WaitFor(prepareDevice)
-	}
-	tasks = append(tasks, genKey)
-
-	if willRequestSerial {
-		requestSerial := m.state.NewTask("request-serial", i18n.G("Request device serial"))
-		requestSerial.WaitFor(genKey)
-		tasks = append(tasks, requestSerial)
-	}
+	// genKey and requestSerial stubbed - not available in this build
 
 	chg := m.state.NewChange(becomeOperationalChangeKind, i18n.G("Initialize device"))
 	chg.AddAll(state.NewTaskSet(tasks...))
@@ -1393,25 +1348,15 @@ func (m *DeviceManager) ensureCloudInitRestricted() error {
 	return nil
 }
 
-// hasInstallDeviceHook returns whether the gadget has an install-device hook.
 // It can return an error if the device has no gadget snap
 func (m *DeviceManager) hasInstallDeviceHook(model *asserts.Model) (bool, error) {
-	gadgetInfo, err := snapstate.CurrentInfo(m.state, model.Gadget())
-	if err != nil {
-		return false, fmt.Errorf("device is seeded in install mode but has no gadget snap: %v", err)
-	}
-	hasInstallDeviceHook := (gadgetInfo.Hooks["install-device"] != nil)
-	return hasInstallDeviceHook, nil
-}
+	return false, nil } // stub
 
 func (m *DeviceManager) installDeviceHookTask(model *asserts.Model) *state.Task {
-	summary := i18n.G("Run install-device hook")
 	hooksup := &hookstate.HookSetup{
-		// TODO: add a reasonable timeout for the install-device hook
 		Snap: model.Gadget(),
-		Hook: "install-device",
 	}
-	return hookstate.HookTask(m.state, summary, hooksup, nil)
+	return hookstate.HookTask(m.state, i18n.G("Install device"), hooksup, nil)
 }
 
 func (m *DeviceManager) ensureInstalled() error {
@@ -1615,15 +1560,12 @@ func (m *DeviceManager) ensurePostFactoryReset() error {
 		encrypted = false
 	}
 
-	// verify the marker
-	if err := verifyFactoryResetMarkerInRun(factoryResetMarker, encrypted); err != nil {
-		return fmt.Errorf("cannot verify factory reset marker: %v", err)
-	}
+	// verify the marker - stubbed (factory reset not supported)
+	_ = factoryResetMarker
+	_ = encrypted
 
 	if encrypted {
-		if err := rotateSaveKeyAndDeleteOldKeys(boot.InitramfsUbuntuSaveDir); err != nil {
-			return fmt.Errorf("cannot remove old encryption keys: %v", err)
-		}
+		// rotateSaveKeyAndDeleteOldKeys stubbed
 	}
 
 	return os.Remove(factoryResetMarker)
@@ -2297,38 +2239,7 @@ func (m *DeviceManager) Systems() ([]*System, error) {
 }
 
 func (m *DeviceManager) systems() ([]*System, error) {
-	systemMode := m.SystemMode(SysAny)
-
-	// it's tough luck when we cannot determine the current system seed
-	currentSys, _ := currentSystemForMode(m.state, systemMode)
-
-	systemLabels, err := filepath.Glob(filepath.Join(dirs.SnapSeedDir, "systems", "*"))
-	if err != nil && !os.IsNotExist(err) {
-		return nil, fmt.Errorf("cannot list available systems: %v", err)
-	}
-	if len(systemLabels) == 0 {
-		// maybe not a UC20 system
-		return nil, ErrNoSystems
-	}
-
-	defaultRecoverySystem, err := m.defaultRecoverySystem()
-	if err != nil && !errors.Is(err, state.ErrNoState) {
-		return nil, err
-	}
-
-	var systems []*System
-	for _, fpLabel := range systemLabels {
-		label := filepath.Base(fpLabel)
-		system, err := systemFromSeed(label, currentSys, defaultRecoverySystem)
-		if err != nil {
-			// TODO:UC20 add a Broken field to the seed system like we do for
-			// snap.Info
-			logger.Noticef("cannot load system %q seed: %v", label, err)
-			continue
-		}
-		systems = append(systems, system)
-	}
-	return systems, nil
+	return nil, fmt.Errorf("systems listing not supported in this build")
 }
 
 // SystemAndGadgetAndEncryptionInfo resolves the target system by
@@ -2453,19 +2364,8 @@ type systemAndEssentialSnaps struct {
 
 // DefaultRecoverySystem returns the default recovery system, if there is one.
 // state.ErrNoState is returned if a default recovery system has not been set.
-func (m *DeviceManager) DefaultRecoverySystem() (*DefaultRecoverySystem, error) {
-	m.state.Lock()
-	defer m.state.Unlock()
-
-	return m.defaultRecoverySystem()
-}
-
-func (m *DeviceManager) defaultRecoverySystem() (*DefaultRecoverySystem, error) {
-	var defaultSystem DefaultRecoverySystem
-	if err := m.state.Get("default-recovery-system", &defaultSystem); err != nil {
-		return nil, err
-	}
-	return &defaultSystem, nil
+func (m *DeviceManager) DefaultRecoverySystem() (interface{}, error) {
+	return nil, fmt.Errorf("recovery systems not supported in this build")
 }
 
 // loadSystemAndEssentialSnaps loads information for the given label, which
@@ -2475,187 +2375,14 @@ func (m *DeviceManager) defaultRecoverySystem() (*DefaultRecoverySystem, error) 
 // TODO: make this method optionally return the system seed, since it might not
 // always be needed, and it is quite large.
 func (m *DeviceManager) loadSystemAndEssentialSnaps(wantedSystemLabel string, types []snap.Type, modeForComps string) (*systemAndEssentialSnaps, error) {
-	// get current system as input for loadSeedAndSystem()
-	systemMode := m.SystemMode(SysAny)
-	var currentSys *currentSystem
-	func() {
-		m.state.Lock()
-		defer m.state.Unlock()
-		currentSys, _ = currentSystemForMode(m.state, systemMode)
-	}()
-
-	defaultRecoverySystem, err := m.DefaultRecoverySystem()
-	if err != nil && !errors.Is(err, state.ErrNoState) {
-		return nil, err
-	}
-
-	s, sys, err := loadSeedAndSystem(wantedSystemLabel, currentSys, defaultRecoverySystem)
-	if err != nil {
-		return nil, err
-	}
-
-	// 2. get the gadget volumes for the given system-label
-	perf := &timings.Timings{}
-	if err := s.LoadEssentialMeta(types, perf); err != nil {
-		return nil, fmt.Errorf("cannot load essential snaps metadata: %v", err)
-	}
-	// EssentialSnaps is always ordered, see asserts.Model.EssentialSnaps:
-	// "snapd, kernel, boot base, gadget." and snaps not loaded above
-	// like "snapd" will be skipped and not part of the EssentialSnaps list
-	//
-	snapInfos := make(map[snap.Type]*snap.Info)
-	compInfos := make(map[snap.Type][]install.ComponentSeedInfo)
-	seedSnaps := make(map[snap.Type]*seed.Snap)
-	systemSnapdVersions := install.SystemSnapdVersions{}
-	for _, seedSnap := range s.EssentialSnaps() {
-		typ := seedSnap.EssentialType
-		if seedSnap.Path == "" {
-			return nil, fmt.Errorf("internal error: cannot get snap path for %s", typ)
-		}
-		snapf, err := snapfile.Open(seedSnap.Path)
-		if err != nil {
-			return nil, fmt.Errorf("cannot open snap from %q: %v", seedSnap.Path, err)
-		}
-		snapInfo, err := snap.ReadInfoFromSnapFile(snapf, seedSnap.SideInfo)
-		if err != nil {
-			return nil, err
-		}
-		if snapInfo.SnapType != typ {
-			return nil, fmt.Errorf("cannot use snap info, expected %s but got %s", typ, snapInfo.SnapType)
-		}
-		// Read components in the seed too, for the mode we are interested in
-		snapForMode, err := s.ModeSnap(seedSnap.SnapName(), modeForComps)
-		if err != nil {
-			return nil, fmt.Errorf("internal error while retrieving %s for %s mode: %v",
-				seedSnap.SnapName(), modeForComps, err)
-		}
-		var compInfosForType []install.ComponentSeedInfo
-		if len(snapForMode.Components) > 0 {
-			compInfosForType = make([]install.ComponentSeedInfo, 0, len(snapForMode.Components))
-			for _, sc := range snapForMode.Components {
-				seedComp := sc
-				compf, err := snapfile.Open(seedComp.Path)
-				if err != nil {
-					return nil, fmt.Errorf("cannot open snap from %q: %v", snapForMode.Path, err)
-				}
-				compInfo, err := snap.ReadComponentInfoFromContainer(
-					compf, snapInfo, &seedComp.CompSideInfo)
-				if err != nil {
-					return nil, err
-				}
-				compInfosForType = append(compInfosForType, install.ComponentSeedInfo{
-					Info: compInfo,
-					Seed: &seedComp,
-				})
-			}
-		}
-		if typ == snap.TypeSnapd || typ == snap.TypeKernel {
-			snapdVersion, _, err := snap.SnapdInfoFromSnapFile(snapf, typ)
-			if err != nil {
-				return nil, err
-			}
-			switch typ {
-			case snap.TypeSnapd:
-				systemSnapdVersions.SnapdVersion = snapdVersion
-			case snap.TypeKernel:
-				systemSnapdVersions.SnapdInitramfsVersion = snapdVersion
-			}
-		}
-		seedSnaps[typ] = snapForMode
-		snapInfos[typ] = snapInfo
-		compInfos[typ] = compInfosForType
-	}
-	if len(snapInfos) != len(types) {
-		return nil, fmt.Errorf("internal error: retrieved snap infos (%d) does not match number of types (%d)", len(snapInfos), len(types))
-	}
-
-	return &systemAndEssentialSnaps{
-		System:              sys,
-		Seed:                s,
-		SystemSnapdVersions: systemSnapdVersions,
-		InfosByType:         snapInfos,
-		CompsByType:         compInfos,
-		SeedSnapsByType:     seedSnaps,
-	}, nil
+	return nil, fmt.Errorf("system loading not supported in this build")
 }
-
-var ErrUnsupportedAction = errors.New("unsupported action")
-
-// Reboot triggers a reboot into the given systemLabel and mode.
-//
-// When called without a systemLabel and without a mode it will just
-// trigger a regular reboot.
-//
-// When called without a systemLabel but with a mode it will use
-// the current system to enter the given mode.
-//
-// Note that "recover" and "run" modes are only available for the
-// current system.
 func (m *DeviceManager) Reboot(systemLabel, mode string) error {
-	rebootCurrent := func() {
-		logger.Noticef("rebooting system")
-		restart.Request(m.state, restart.RestartSystemNow, nil)
-	}
-
-	// most simple case: just reboot
-	if systemLabel == "" && mode == "" {
-		m.state.Lock()
-		defer m.state.Unlock()
-
-		rebootCurrent()
-		return nil
-	}
-
-	// no systemLabel means we need to fall back to either the default recovery
-	// system, or the current system, depending on the requested mode
-	if systemLabel == "" {
-		defaultLabel, err := defaultSystemLabel(m.state, m, mode)
-		if err != nil {
-			return err
-		}
-
-		systemLabel = defaultLabel
-	}
-
-	switched := func(systemLabel string, sysAction *SystemAction) {
-		logger.Noticef("rebooting into system %q in %q mode", systemLabel, sysAction.Mode)
-		restart.Request(m.state, restart.RestartSystemNow, nil)
-	}
-	// even if we are already in the right mode we restart here by
-	// passing rebootCurrent as this is what the user requested
-	return m.switchToSystemAndMode(systemLabel, mode, rebootCurrent, switched)
+	return fmt.Errorf("not supported in this build")
 }
 
 func defaultSystemLabel(st *state.State, manager *DeviceManager, mode string) (string, error) {
-	st.Lock()
-	defer st.Unlock()
-
-	switch mode {
-	case "recover", "factory-reset", "install":
-		defaultRecoverySystem, err := manager.defaultRecoverySystem()
-		if err != nil && !errors.Is(err, state.ErrNoState) {
-			return "", err
-		}
-
-		if defaultRecoverySystem != nil {
-			return defaultRecoverySystem.System, nil
-		}
-
-		// intentionally fall through here, since we fall back to using the most
-		// recently seeded system if there isn't a default recovery system
-		// explicitly set
-		fallthrough
-	case "run":
-		systemMode := manager.SystemMode(SysAny)
-		currentSys, err := currentSystemForMode(st, systemMode)
-		if err != nil {
-			return "", fmt.Errorf("cannot get current system: %v", err)
-		}
-
-		return currentSys.System, nil
-	default:
-		return "", ErrUnsupportedAction
-	}
+	return "", fmt.Errorf("system labeling not supported in this build")
 }
 
 // RequestSystemAction requests the provided system to be run in a
@@ -2663,17 +2390,7 @@ func defaultSystemLabel(st *state.State, manager *DeviceManager, mode string) (s
 // A system reboot will be requested when the request can be
 // successfully carried out.
 func (m *DeviceManager) RequestSystemAction(systemLabel string, action SystemAction) error {
-	if systemLabel == "" {
-		return fmt.Errorf("internal error: system label is unset")
-	}
-
-	nop := func() {}
-	switched := func(systemLabel string, sysAction *SystemAction) {
-		logger.Noticef("restarting into system %q for action %q", systemLabel, sysAction.Title)
-		restart.Request(m.state, restart.RestartSystemNow, nil)
-	}
-	// we do nothing (nop) if the mode and system are the same
-	return m.switchToSystemAndMode(systemLabel, action.Mode, nop, switched)
+	return fmt.Errorf("not supported in this build")
 }
 
 // switchToSystemAndMode switches to given systemLabel and mode.
@@ -2681,87 +2398,7 @@ func (m *DeviceManager) RequestSystemAction(systemLabel string, action SystemAct
 // sameSystemAndMode. If successful otherwise it calls switched. Both
 // are called with the state lock held.
 func (m *DeviceManager) switchToSystemAndMode(systemLabel, mode string, sameSystemAndMode func(), switched func(systemLabel string, sysAction *SystemAction)) error {
-	if err := checkSystemRequestConflict(m.state, systemLabel); err != nil {
-		return err
-	}
-
-	systemMode := m.SystemMode(SysAny)
-	// ignore the error to be robust in scenarios that
-	// dont' stricly require currentSys to be carried through.
-	// make sure that currentSys == nil does not break
-	// the code below!
-	// TODO: should we log the error?
-	m.state.Lock()
-	currentSys, _ := currentSystemForMode(m.state, systemMode)
-	m.state.Unlock()
-
-	defaultRecoverySystem, err := m.DefaultRecoverySystem()
-	if err != nil && !errors.Is(err, state.ErrNoState) {
-		return err
-	}
-
-	systemSeedDir := filepath.Join(dirs.SnapSeedDir, "systems", systemLabel)
-	if _, err := os.Stat(systemSeedDir); err != nil {
-		// XXX: should we wrap this instead return a naked stat error?
-		return err
-	}
-	system, err := systemFromSeed(systemLabel, currentSys, defaultRecoverySystem)
-	if err != nil {
-		return fmt.Errorf("cannot load seed system: %v", err)
-	}
-
-	var sysAction *SystemAction
-	for _, act := range system.Actions {
-		if mode == act.Mode {
-			sysAction = &act
-			break
-		}
-	}
-	if sysAction == nil {
-		// XXX: provide more context here like what mode was requested?
-		return ErrUnsupportedAction
-	}
-
-	// XXX: requested mode is valid; only current system has 'run' and
-	// recover 'actions'
-
-	switch systemMode {
-	case "recover", "run":
-		// if going from recover to recover or from run to run and the systems
-		// are the same do nothing
-		if systemMode == sysAction.Mode && currentSys != nil && systemLabel == currentSys.System {
-			m.state.Lock()
-			defer m.state.Unlock()
-			sameSystemAndMode()
-			return nil
-		}
-	case "install", "factory-reset":
-		// requesting system actions in install or factory-reset modes
-		// does not make sense atm
-		//
-		// TODO:UC20: maybe factory hooks will be able to something like
-		// this?
-		return ErrUnsupportedAction
-	default:
-		// probably test device manager mocking problem, or also potentially
-		// missing modeenv
-		return fmt.Errorf("internal error: unexpected manager system mode %q", systemMode)
-	}
-
-	m.state.Lock()
-	defer m.state.Unlock()
-
-	deviceCtx, err := DeviceCtx(m.state, nil, nil)
-	if err != nil {
-		return err
-	}
-	if err := boot.SetRecoveryBootSystemAndMode(deviceCtx, systemLabel, mode); err != nil {
-		return fmt.Errorf("cannot set device to boot into system %q in mode %q: %v", systemLabel, mode, err)
-	}
-
-	switched(systemLabel, sysAction)
-	return nil
-}
+	return fmt.Errorf("system mode switching not supported in this build")}
 
 // implement storecontext.Backend
 

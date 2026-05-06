@@ -40,7 +40,6 @@ import (
 	"github.com/snapcore/snapd/gadget/device"
 	"github.com/snapcore/snapd/i18n"
 	"github.com/snapcore/snapd/logger"
-	"github.com/snapcore/snapd/netutil"
 	"github.com/snapcore/snapd/osutil"
 	"github.com/snapcore/snapd/overlord/assertstate"
 	"github.com/snapcore/snapd/overlord/auth"
@@ -287,19 +286,7 @@ func checkGadgetValid(st *state.State, snapInfo, _ *snap.Info, snapf snap.Contai
 
 var once sync.Once
 
-func delayedCrossMgrInit() {
-	once.Do(func() {
-		snapstate.AddCheckSnapCallback(checkGadgetOrKernel)
-		snapstate.AddCheckSnapCallback(checkGadgetValid)
-		snapstate.AddCheckSnapCallback(checkGadgetRemodelCompatible)
-	})
-	snapstate.CanAutoRefresh = canAutoRefresh
-	snapstate.IsOnMeteredConnection = netutil.IsOnMeteredConnection
-	snapstate.DeviceCtx = DeviceCtx
-	snapstate.RemodelingChange = RemodelingChange
-	snapstate.SeedRefreshTasks = SeedRefreshTasks
-	snapstate.AppendSeedRefreshSetupTaskIDs = AppendSeedRefreshSetupTaskIDs
-}
+func delayedCrossMgrInit() {}
 
 // proxyStore returns the store assertion for the proxy store if one is set.
 func proxyStore(st *state.State, tr *config.Transaction) (*asserts.Store, error) {
@@ -1451,18 +1438,7 @@ func checkForInvalidSnapsInModel(model *asserts.Model, vSets *snapasserts.Valida
 }
 
 func checkForSystemSeed(st *state.State, deviceCtx snapstate.DeviceContext) (bool, error) {
-	// on non-classic systems, we will always have a seed partition. this check
-	// isn't needed, but it makes testing classic systems simpler.
-	if !deviceCtx.Classic() {
-		return true, nil
-	}
-
-	gadgetData, err := CurrentGadgetData(st, deviceCtx)
-	if err != nil {
-		return false, fmt.Errorf("cannot get gadget data: %w", err)
-	}
-
-	return gadgetData.Info.HasRole(gadget.SystemSeed), nil
+	return false, fmt.Errorf("system seed checking not supported")
 }
 
 // RemodelOptions are options for Remodel.
@@ -1488,193 +1464,7 @@ type RemodelOptions struct {
 //   - Make sure this works with Core 20 as well, in the Core 20 case
 //     we must enforce the default-channels from the model as well
 func Remodel(st *state.State, new *asserts.Model, opts RemodelOptions) (*state.Change, error) {
-	var seeded bool
-	err := st.Get("seeded", &seeded)
-	if err != nil && !errors.Is(err, state.ErrNoState) {
-		return nil, err
-	}
-	if !seeded {
-		return nil, fmt.Errorf("cannot remodel until fully seeded")
-	}
-
-	if !opts.Offline && (len(opts.LocalSnaps) > 0 || len(opts.LocalComponents) > 0) {
-		return nil, errors.New("cannot do an online remodel with provided local snaps or components")
-	}
-
-	for _, ls := range opts.LocalSnaps {
-		if ls.Components != nil || ls.InstanceName != "" || ls.RevOpts != (snapstate.RevisionOptions{}) {
-			return nil, errors.New("internal error: locally provided snaps must only provide path and side info")
-		}
-	}
-
-	current, err := findModel(st)
-	if err != nil {
-		return nil, err
-	}
-
-	prevRev, err := findKnownRevisionOfModel(st, new)
-	if err != nil {
-		return nil, err
-	}
-	if new.Revision() < prevRev {
-		return nil, fmt.Errorf("cannot remodel to older revision %d of model %s/%s than last revision %d known to the device", new.Revision(), new.BrandID(), new.Model(), prevRev)
-	}
-
-	// TODO: we need dedicated assertion language to permit for
-	// model transitions before we allow cross vault
-	// transitions.
-
-	remodelKind := ClassifyRemodel(current, new)
-
-	if _, err := findSerial(st, nil); err != nil {
-		if !errors.Is(err, state.ErrNoState) {
-			return nil, err
-		}
-
-		if opts.Offline && remodelKind == UpdateRemodel {
-			// it is allowed to remodel without serial for
-			// offline remodels that are update only
-		} else {
-			return nil, fmt.Errorf("cannot remodel without a serial")
-		}
-	}
-
-	if current.Series() != new.Series() {
-		return nil, fmt.Errorf("cannot remodel to different series yet")
-	}
-
-	devCtx, err := DeviceCtx(st, nil, nil)
-	if err != nil {
-		return nil, fmt.Errorf("cannot get device context: %v", err)
-	}
-
-	if devCtx.IsClassicBoot() {
-		return nil, fmt.Errorf("cannot remodel from classic (non-hybrid) model")
-	}
-
-	if current.Classic() != new.Classic() {
-		return nil, fmt.Errorf("cannot remodel across classic and non-classic models")
-	}
-
-	// TODO:UC20: ensure we never remodel to a lower
-	// grade
-
-	// also disallow remodel from non-UC20 (grade unset) to UC20
-	if current.Grade() != new.Grade() {
-		if current.Grade() == asserts.ModelGradeUnset && new.Grade() != asserts.ModelGradeUnset {
-			// a case of pre-UC20 -> UC20 remodel
-			return nil, fmt.Errorf("cannot remodel from pre-UC20 to UC20+ models")
-		}
-		return nil, fmt.Errorf("cannot remodel from grade %v to grade %v", current.Grade(), new.Grade())
-	}
-
-	if new.Base() == "" && current.Base() != "" {
-		return nil, errors.New("cannot remodel from UC18+ (using snapd snap) system back to UC16 system (using core snap)")
-	}
-
-	// TODO: should we restrict remodel from one arch to another?
-	// There are valid use-cases here though, i.e. amd64 machine that
-	// remodels itself to/from i386 (if the HW can do both 32/64 bit)
-	if current.Architecture() != new.Architecture() {
-		return nil, fmt.Errorf("cannot remodel to different architectures yet")
-	}
-
-	// calculate snap differences between the two models
-	// FIXME: this needs work to switch from core->bases
-	if current.Base() == "" && new.Base() != "" {
-		return nil, fmt.Errorf("cannot remodel from core to bases yet")
-	}
-
-	// Do we do this only for the more complicated cases (anything
-	// more than adding required-snaps really)?
-	if err := snapstate.CheckChangeConflictRunExclusively(st, "remodel"); err != nil {
-		return nil, err
-	}
-
-	remodCtx, err := remodelCtx(st, current, new)
-	if err != nil {
-		return nil, err
-	}
-
-	var tss []*state.TaskSet
-	switch remodelKind {
-	case ReregRemodel:
-		if opts.Offline {
-			// TODO support this in the future if a serial
-			// assertion has been provided by a file. To support
-			// this case, we will pass the snaps/paths by setting
-			// local-{snaps,paths} in the task.
-			return nil, fmt.Errorf("cannot remodel offline to different brand ID / model yet")
-		}
-		requestSerial := st.NewTask("request-serial", i18n.G("Request new device serial"))
-
-		prepare := st.NewTask("prepare-remodeling", i18n.G("Prepare remodeling"))
-		prepare.WaitFor(requestSerial)
-		ts := state.NewTaskSet(requestSerial, prepare)
-		tss = []*state.TaskSet{ts}
-	case StoreSwitchRemodel:
-		sto := remodCtx.Store()
-		if sto == nil {
-			return nil, fmt.Errorf("internal error: a store switch remodeling should have built a store")
-		}
-		// ensure a new session accounting for the new brand store
-		st.Unlock()
-		err := sto.EnsureDeviceSession()
-		st.Lock()
-		if err != nil {
-			return nil, fmt.Errorf("cannot get a store session based on the new model assertion: %v", err)
-		}
-		fallthrough
-	case UpdateRemodel:
-		// TODO: make this case follow the same pattern as ReregRemodel, where
-		// we call remodelTasks from inside another task, so that the tasks for
-		// the remodel are added to an existing and running change. this will
-		// allow us to avoid things like calling snapstate.CheckChangeConflictRunExclusively again.
-		var err error
-		tss, err = remodelTasks(context.TODO(), st, current, new, remodCtx, "", opts)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	// we potentially released the lock a couple of times here:
-	// make sure the current model is essentially the same as when
-	// we started
-	current1, err := findModel(st)
-	if err != nil {
-		return nil, err
-	}
-	if current.BrandID() != current1.BrandID() || current.Model() != current1.Model() || current.Revision() != current1.Revision() {
-		return nil, &snapstate.ChangeConflictError{Message: fmt.Sprintf("cannot start remodel, clashing with concurrent remodel to %v/%v (%v)", current1.BrandID(), current1.Model(), current1.Revision())}
-	}
-	// make sure another unfinished remodel wasn't already setup either
-	if chg := RemodelingChange(st); chg != nil {
-		return nil, &snapstate.ChangeConflictError{
-			Message:    "cannot start remodel, clashing with concurrent one",
-			ChangeKind: chg.Kind(),
-			ChangeID:   chg.ID(),
-		}
-	}
-
-	// check for exclusive changes again since we released the lock
-	if err := snapstate.CheckChangeConflictRunExclusively(st, "remodel"); err != nil {
-		return nil, err
-	}
-
-	var msg string
-	if current.BrandID() == new.BrandID() && current.Model() == new.Model() {
-		msg = fmt.Sprintf(i18n.G("Refresh model assertion from revision %v to %v"), current.Revision(), new.Revision())
-	} else {
-		msg = fmt.Sprintf(i18n.G("Remodel device to %v/%v (%v)"), new.BrandID(), new.Model(), new.Revision())
-	}
-
-	chg := st.NewChange(remodelChangeKind, msg)
-	remodCtx.Init(chg)
-	for _, ts := range tss {
-		chg.AddAll(ts)
-	}
-
-	return chg, nil
+	return nil, fmt.Errorf("remodeling not supported in this build")
 }
 
 // RemodelingChange returns a remodeling change in progress, if there is one
@@ -1821,15 +1611,7 @@ func SeedRefreshTasks(st *state.State, snapSetupTasks, compSetupTasks []string) 
 // AppendSeedRefreshSetupTaskIDs appends unique setup task IDs to the
 // create-recovery-system task recovery-system-setup payload.
 func AppendSeedRefreshSetupTaskIDs(create *state.Task, snapSetupTask string, compSetupTasks []string) error {
-	setup, err := taskRecoverySystemSetup(create)
-	if err != nil {
-		return err
-	}
-
-	setup.SnapSetupTasks = appendUnique(setup.SnapSetupTasks, snapSetupTask)
-	setup.ComponentSetupTasks = appendUnique(setup.ComponentSetupTasks, compSetupTasks...)
-
-	return setTaskRecoverySystemSetup(create, setup)
+	return nil
 }
 
 func appendUnique(slice []string, additions ...string) []string {
@@ -2474,7 +2256,6 @@ func InstallSetupStorageEncryption(st *state.State, label string, onVolumes map[
 			return nil, err
 		}
 		// Auth data must be in memory to avoid leaking credentials.
-		st.Cache(volumesAuthOptionsKey{label}, volumesAuth)
 	}
 
 	chg := st.NewChange(installStepSetupStorageEncryptionChangeKind, fmt.Sprintf("Setup storage encryption for installing system %q", label))

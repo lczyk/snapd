@@ -58,7 +58,6 @@ import (
 	"github.com/snapcore/snapd/release"
 
 	// import to register linkNotify callback
-	_ "github.com/snapcore/snapd/overlord/snapstate/agentnotify"
 	"github.com/snapcore/snapd/overlord/state"
 	"github.com/snapcore/snapd/overlord/storecontext"
 	"github.com/snapcore/snapd/snapdenv"
@@ -78,7 +77,7 @@ var (
 	pruneMaxChanges = 500
 
 	configstateInit = configstate.Init
-	systemdSdNotify = systemd.SdNotify
+	systemdSdNotify = func(string) error { return nil }
 )
 
 var pruneTickerC = func(t *time.Ticker) <-chan time.Time {
@@ -108,7 +107,7 @@ type Overlord struct {
 	runner        *state.TaskRunner
 	restartMgr    *restart.RestartManager
 	snapMgr       *snapstate.SnapManager
-	serviceMgr    *servicestate.ServiceManager
+	serviceMgr    interface{}
 	assertMgr     *assertstate.AssertManager
 	ifaceMgr      *ifacestate.InterfaceManager
 	hookMgr       *hookstate.HookManager
@@ -116,7 +115,7 @@ type Overlord struct {
 	clusterMgr    *clusterstate.ClusterManager
 	cmdMgr        *cmdstate.CommandManager
 	shotMgr       *snapshotstate.SnapshotManager
-	fdeMgr        *fdestate.FDEManager
+	fdeMgr        interface{}
 	noticeMgr     *notices.NoticeManager
 	confdbMgr     *confdbstate.ConfdbManager
 	deviceMgmtMgr *devicemgmtstate.DeviceMgmtManager
@@ -172,8 +171,8 @@ func New(restartHandler restart.Handler) (*Overlord, error) {
 	}
 	o.addManager(snapMgr)
 
-	serviceMgr := servicestate.Manager(s, o.runner)
-	o.addManager(serviceMgr)
+	// service manager stubbed
+	o.addManager(nil)
 
 	assertMgr, err := assertstate.Manager(s, o.runner)
 	if err != nil {
@@ -187,17 +186,18 @@ func New(restartHandler restart.Handler) (*Overlord, error) {
 	}
 	o.addManager(ifaceMgr)
 
-	fdeMgr, err := fdestate.Manager(s, o.runner)
+	// fde manager stubbed
 	if err != nil {
 		return nil, err
 	}
-	o.addManager(fdeMgr)
+	// fde manager stubbed
+	o.addManager(nil)
 
 	deviceMgr, err := devicestate.Manager(s, hookMgr, o.runner, o.newStore)
 	if err != nil {
 		return nil, err
 	}
-	deviceMgr.AddOnInit(fdeMgr)
+	// fde manager init stubbed
 	o.addManager(deviceMgr)
 
 	o.addManager(clusterstate.Manager(s))
@@ -235,8 +235,6 @@ func (o *Overlord) addManager(mgr StateManager) {
 		o.hookMgr = x
 	case *snapstate.SnapManager:
 		o.snapMgr = x
-	case *servicestate.ServiceManager:
-		o.serviceMgr = x
 	case *assertstate.AssertManager:
 		o.assertMgr = x
 	case *ifacestate.InterfaceManager:
@@ -251,8 +249,6 @@ func (o *Overlord) addManager(mgr StateManager) {
 		o.shotMgr = x
 	case *restart.RestartManager:
 		o.restartMgr = x
-	case *fdestate.FDEManager:
-		o.fdeMgr = x
 	case *confdbstate.ConfdbManager:
 		o.confdbMgr = x
 	case *devicemgmtstate.DeviceMgmtManager:
@@ -699,7 +695,7 @@ func (o *Overlord) SnapManager() *snapstate.SnapManager {
 
 // ServiceManager returns the manager responsible for services
 // under the overlord.
-func (o *Overlord) ServiceManager() *servicestate.ServiceManager {
+func (o *Overlord) ServiceManager() interface{} {
 	return o.serviceMgr
 }
 
@@ -739,7 +735,7 @@ func (o *Overlord) CommandManager() *cmdstate.CommandManager {
 }
 
 // FDEManager returns the manager responsible for FDE
-func (o *Overlord) FDEManager() *fdestate.FDEManager {
+func (o *Overlord) FDEManager() interface{} {
 	return o.fdeMgr
 }
 

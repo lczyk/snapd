@@ -83,13 +83,13 @@ const (
 	unlinkSnapReasonDisable unlinkSnapReason = "disable"
 )
 
-// SnapServiceOptions is a hook set by servicestate.
+// SnapServiceOptions is a hook set by servicestate - stubbed.
 var SnapServiceOptions = func(st *state.State, snapInfo *snap.Info, grps map[string]*quota.Group) (opts *wrappers.SnapServiceOptions, err error) {
-	panic("internal error: snapstate.SnapServiceOptions is unset")
+	return &wrappers.SnapServiceOptions{}, nil
 }
 
 var EnsureSnapAbsentFromQuotaGroup = func(st *state.State, snap string) error {
-	panic("internal error: snapstate.EnsureSnapAbsentFromQuotaGroup is unset")
+	return nil
 }
 
 var SecurityProfilesRemoveLate = func(snapName string, rev snap.Revision, typ snap.Type) error {

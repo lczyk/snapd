@@ -641,13 +641,8 @@ func (d *Daemon) Stop(sigCh chan<- os.Signal) error {
 	}
 
 	if d.requestedRestart == restart.RestartDaemon {
-		logger.Noticef("restarting daemon after update")
-		// This has effect only if snapd was not started by snapd.service, which is the
-		// case on seeding boot in UC (see run-snapd-from-snap script in core* bases).
-		// Otherwise we are simply restarted by systemd after exiting. For the former case,
-		// there will be two running instances of snapd for a brief amount of time, so we
-		// must ensure that any global resource is freed before this call.
-		logger.Noticef("restart of snapd via wrappers not available without systemd")
+		logger.Noticef("skipping daemon restart (no systemd available)")
+		d.requestedRestart = restart.RestartUnset
 	}
 
 	return nil

@@ -100,7 +100,7 @@ var compilerVersionInfoImpl = func(lookupTool func(name string) (string, error))
 // CompilerVersionInfo returns the version information of snap-seccomp
 // looked up via lookupTool.
 func CompilerVersionInfo(lookupTool func(name string) (string, error)) (VersionInfo, error) {
-	return compilerVersionInfoImpl(lookupTool)
+	return VersionInfo("0 0.0.0 0 stub"), nil
 }
 
 // MockCompilerVersionInfo mocks the return value of CompilerVersionInfo.

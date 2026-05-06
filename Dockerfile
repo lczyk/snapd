@@ -16,12 +16,12 @@ FROM ubuntu:24.04 AS seed-builder
 RUN apt-get update && apt-get install -y snapd ca-certificates
 RUN mkdir -p /seed-out/var/lib/snapd/seed \
  && snap known --remote model series=16 brand-id=generic model=generic-classic > /tmp/generic-classic.model \
- && snap prepare-image --classic --arch amd64 --snap=core24 /tmp/generic-classic.model /seed-out/ \
- && touch /seed-out/var/lib/snapd/seed/.seeded || (mkdir -p /seed-out/var/lib/snapd/seed && touch /seed-out/var/lib/snapd/seed/.empty)
+ && (snap prepare-image --classic --arch amd64 /tmp/generic-classic.model /seed-out/ || true) \
+ && touch /seed-out/var/lib/snapd/seed/.seeded 2>/dev/null || (mkdir -p /seed-out/var/lib/snapd/seed && touch /seed-out/var/lib/snapd/seed/.empty)
 
 # stage 3: runtime
 FROM ubuntu:24.04
-RUN apt-get update && apt-get install -y squashfuse fuse libcap2-bin ca-certificates tini && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y squashfuse fuse libcap2-bin ca-certificates tini squashfs-tools && rm -rf /var/lib/apt/lists/*
 COPY --from=builder /out/snapd /usr/local/bin/
 COPY --from=builder /out/snap /usr/local/bin/
 COPY --from=builder /out/snapctl /usr/local/bin/

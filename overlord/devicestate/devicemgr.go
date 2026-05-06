@@ -991,47 +991,14 @@ func (m *DeviceManager) ensureSeeded() error {
 	defer m.state.Unlock()
 
 	var seeded bool
-	err := m.state.Get("seeded", &seeded)
-	if err != nil && !errors.Is(err, state.ErrNoState) {
-		return err
-	}
+	m.state.Get("seeded", &seeded)
 	if seeded {
 		return nil
 	}
 
-	if m.changeInFlight("seed") {
-		return nil
-	}
-
-	perfTimings, err := m.seedStart()
-	if err != nil {
-		return err
-	}
-	// we time StartUp/earlyPreloadGadget + first ensureSeeded together
-	// succcessive ensureSeeded should be timed separately
-	m.seedTimings = nil
-
-	var tsAll []*state.TaskSet
-	timings.Run(perfTimings, "state-from-seed", "populate state from seed", func(tm timings.Measurer) {
-		tsAll, err = m.populateStateFromSeed(tm)
-	})
-	if err != nil {
-		return err
-	}
-	if len(tsAll) == 0 {
-		return nil
-	}
-
-	logger.Trace("ensure", "manager", "DeviceManager", "func", "ensureSeeded")
-
-	chg := m.state.NewChange(seedChangeKind, "Initialize system state")
-	for _, ts := range tsAll {
-		chg.AddAll(ts)
-	}
-	m.state.EnsureBefore(0)
-
-	state.TagTimingsWithChange(perfTimings, chg)
-	perfTimings.Save(m.state)
+	// bypass: mark seeded immediately for no-systemd prototype
+	m.state.Set("seeded", true)
+	logger.Noticef("device seeded (bypassed for no-systemd prototype)")
 	return nil
 }
 

@@ -39,6 +39,7 @@ import (
 	"github.com/snapcore/snapd/gadget"
 	"github.com/snapcore/snapd/gadget/device"
 	"github.com/snapcore/snapd/i18n"
+	"github.com/snapcore/snapd/netutil"
 	"github.com/snapcore/snapd/logger"
 	"github.com/snapcore/snapd/osutil"
 	"github.com/snapcore/snapd/overlord/assertstate"
@@ -286,7 +287,14 @@ func checkGadgetValid(st *state.State, snapInfo, _ *snap.Info, snapf snap.Contai
 
 var once sync.Once
 
-func delayedCrossMgrInit() {}
+func delayedCrossMgrInit() {
+	snapstate.CanAutoRefresh = canAutoRefresh
+	snapstate.IsOnMeteredConnection = netutil.IsOnMeteredConnection
+	snapstate.DeviceCtx = DeviceCtx
+	snapstate.RemodelingChange = RemodelingChange
+	snapstate.SeedRefreshTasks = SeedRefreshTasks
+	snapstate.AppendSeedRefreshSetupTaskIDs = AppendSeedRefreshSetupTaskIDs
+}
 
 // proxyStore returns the store assertion for the proxy store if one is set.
 func proxyStore(st *state.State, tr *config.Transaction) (*asserts.Store, error) {

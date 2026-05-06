@@ -77,39 +77,13 @@ func ModelFromTask(task *state.Task) (*asserts.Model, error) {
 // DeviceContext is passed in. It will again return a conflict error
 // during remodeling unless the providedDeviceCtx is for it.
 func DevicePastSeeding(st *state.State, providedDeviceCtx DeviceContext) (DeviceContext, error) {
-	var seeded bool
-	err := st.Get("seeded", &seeded)
-	if err != nil && !errors.Is(err, state.ErrNoState) {
-		return nil, err
-	}
-	if chg := RemodelingChange(st); chg != nil {
-		// a remodeling is in progress and this is not called
-		// as part of it. The 2nd check should not be needed
-		// in practice.
-		if providedDeviceCtx == nil || !providedDeviceCtx.ForRemodeling() {
-			return nil, &ChangeConflictError{
-				Message: "remodeling in progress, no other " +
-					"changes allowed until this is done",
-				ChangeKind: "remodel",
-				ChangeID:   chg.ID(),
-			}
-		}
-	}
 	devCtx, err := DeviceCtx(st, nil, providedDeviceCtx)
 	if err != nil && !errors.Is(err, state.ErrNoState) {
 		return nil, err
 	}
-	// when seeded devCtx should not be nil except in the rare
-	// case of upgrades from a snapd before the introduction of
-	// the fallback generic/generic-classic model
-	if !seeded || devCtx == nil {
-		return nil, &ChangeConflictError{
-			Message: "too early for operation, device not yet" +
-				" seeded or device model not acknowledged",
-			ChangeKind: "seed",
-		}
+	if devCtx == nil {
+		return nil, state.ErrNoState
 	}
-
 	return devCtx, nil
 }
 

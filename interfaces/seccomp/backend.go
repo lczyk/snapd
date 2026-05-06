@@ -83,20 +83,8 @@ type Backend struct {
 // determine if we need to recompile seccomp policy due to system
 // changes outside of snapd.
 func (b *Backend) Initialize(*interfaces.SecurityBackendOptions) error {
-	// TODO: This function used to create "$SnapSeccompDir/global.bin" which is
-	// not needed anymore but also not cleaned up. Figure out a safe way to
-	// remove it.
-	var err error
-	b.snapSeccomp, err = seccomp.NewCompiler(seccompCompilerLookup)
-	if err != nil {
-		return fmt.Errorf("cannot initialize seccomp profile compiler: %v", err)
-	}
-
-	versionInfo, err := snapSeccompVersionInfo(b.snapSeccomp)
-	if err != nil {
-		return fmt.Errorf("cannot obtain snap-seccomp version information: %v", err)
-	}
-	b.versionInfo = versionInfo
+	// stub: snap-seccomp not available in this build
+	b.versionInfo = seccomp.VersionInfo("0 0.0.0 0 stub")
 	return nil
 }
 

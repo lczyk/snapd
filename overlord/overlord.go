@@ -171,8 +171,6 @@ func New(restartHandler restart.Handler) (*Overlord, error) {
 	}
 	o.addManager(snapMgr)
 
-	// service manager stubbed
-	o.addManager(nil)
 
 	assertMgr, err := assertstate.Manager(s, o.runner)
 	if err != nil {
@@ -190,8 +188,6 @@ func New(restartHandler restart.Handler) (*Overlord, error) {
 	if err != nil {
 		return nil, err
 	}
-	// fde manager stubbed
-	o.addManager(nil)
 
 	deviceMgr, err := devicestate.Manager(s, hookMgr, o.runner, o.newStore)
 	if err != nil {

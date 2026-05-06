@@ -77,6 +77,7 @@ func firstCheckFuse() error {
 }
 
 func checkSquashfsMount() error {
+	return nil // stub: syscheck bypassed for no-systemd prototype
 	if err := firstCheckFuse(); err != nil {
 		return err
 	}

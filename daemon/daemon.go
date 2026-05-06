@@ -581,7 +581,9 @@ func (d *Daemon) Stop(sigCh chan<- os.Signal) error {
 		time.Sleep(rebootNoticeWait - timeSpent)
 	}
 	d.snapdListener.Close()
-	d.standbyOpinions.Stop()
+	if d.standbyOpinions != nil {
+		d.standbyOpinions.Stop()
+	}
 
 	// We're using the background context here because the tomb's
 	// context will likely already have been cancelled when we are

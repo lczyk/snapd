@@ -64,7 +64,6 @@ import (
 	"github.com/snapcore/snapd/store"
 	"github.com/snapcore/snapd/strutil"
 	"github.com/snapcore/snapd/timings"
-	userclient "github.com/snapcore/snapd/usersession/client"
 	"github.com/snapcore/snapd/wrappers"
 )
 
@@ -1100,7 +1099,7 @@ func (m *SnapManager) doPreDownloadSnap(t *state.Task, tomb *tomb.Tomb) error {
 			return err
 		}
 
-		var refreshInfo *userclient.PendingSnapRefreshInfo
+		var refreshInfo interface{}
 		if err := t.Get("refresh-info", &refreshInfo); err != nil {
 			return err
 		}
@@ -1113,7 +1112,7 @@ func (m *SnapManager) doPreDownloadSnap(t *state.Task, tomb *tomb.Tomb) error {
 
 // asyncRefreshOnSnapClose asynchronously waits for the snap the close, notifies
 // the user and then triggers an auto-refresh.
-func asyncRefreshOnSnapClose(st *state.State, snapName string, refreshInfo *userclient.PendingSnapRefreshInfo) error {
+func asyncRefreshOnSnapClose(st *state.State, snapName string, refreshInfo interface{}) error {
 	// there's already a goroutine waiting for this snap to close so just notify
 	if IsSnapMonitored(st, snapName) {
 		maybeAsyncPendingRefreshNotification(context.TODO(), st, refreshInfo)

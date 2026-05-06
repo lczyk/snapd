@@ -33,7 +33,6 @@ import (
 	"github.com/snapcore/snapd/osutil"
 	"github.com/snapcore/snapd/overlord/configstate/config"
 	"github.com/snapcore/snapd/sysconfig"
-	"github.com/snapcore/snapd/systemd"
 )
 
 var services = []struct{ configName, systemdName string }{

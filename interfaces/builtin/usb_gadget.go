@@ -29,7 +29,6 @@ import (
 	"github.com/snapcore/snapd/interfaces/apparmor"
 	"github.com/snapcore/snapd/interfaces/seccomp"
 	"github.com/snapcore/snapd/snap"
-	"github.com/snapcore/snapd/systemd"
 )
 
 const usbGadgetSummary = `allows access to the usb gadget API`
@@ -146,10 +145,6 @@ func enumerateFFSMounts(mounts []map[string]any, yield func(*ffsMountInfo) error
 func (iface *usbGadgetInterface) BeforeConnectPlug(plug *interfaces.ConnectedPlug) error {
 	// The systemd.ListMountUnits() method works by issuing the command
 	// "systemctl show *.mount", but globbing was only added in systemd v209.
-	if err := systemd.EnsureAtLeast(209); err != nil {
-		return err
-	}
-
 	mounts, err := ffsMounts(plug)
 	if err != nil {
 		return err

@@ -34,7 +34,6 @@ import (
 	"github.com/snapcore/snapd/interfaces/symlinks"
 	"github.com/snapcore/snapd/osutil"
 	"github.com/snapcore/snapd/snap"
-	"github.com/snapcore/snapd/systemd"
 )
 
 // sourceDirAttr contains information about a *-source interface attribute.
@@ -267,7 +266,7 @@ func symlinksForSourceDir(
 		}
 
 		// Get last component from dirs and make path an easier to handle name
-		escapedRelPath := systemd.EscapeUnitNamePath(dirs[splitNum-1])
+		escapedRelPath := strings.ReplaceAll(dirs[splitNum-1], "/", "-")
 		prefix := ""
 		if withPriority {
 			// The priority depends on the list order of the directories

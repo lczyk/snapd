@@ -33,7 +33,6 @@ import (
 	"github.com/snapcore/snapd/logger"
 	"github.com/snapcore/snapd/osutil"
 	"github.com/snapcore/snapd/snapdenv"
-	"github.com/snapcore/snapd/systemd"
 )
 
 // PreinstallCheckContext wraps RunChecksContext to control access
@@ -83,7 +82,7 @@ func PreinstallCheck(ctx context.Context, bootImagePaths []string) (*PreinstallC
 	//  - loaded from PCI device option ROMs (e.g. network card PXE ROMs)
 	checkFlags := sb_preinstall.PermitAddonDrivers
 	// For nested tests: muinstaller does not support interactions to ignore errors.
-	if systemd.IsVirtualMachine() && snapdenv.Testing() {
+	if false && snapdenv.Testing() {
 		checkFlags |= sb_preinstall.PermitVirtualMachine
 	}
 

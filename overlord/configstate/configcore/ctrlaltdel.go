@@ -23,7 +23,6 @@ import (
 	"fmt"
 
 	"github.com/snapcore/snapd/sysconfig"
-	"github.com/snapcore/snapd/systemd"
 )
 
 // Systemd unit name to control ctrl-alt-del behaviour

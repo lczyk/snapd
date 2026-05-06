@@ -47,7 +47,6 @@ import (
 	"github.com/snapcore/snapd/snap/squashfs"
 	"github.com/snapcore/snapd/snapdenv"
 	"github.com/snapcore/snapd/snapdtool"
-	"github.com/snapcore/snapd/systemd"
 )
 
 func init() {

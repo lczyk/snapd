@@ -20,30 +20,9 @@
 package fde
 
 import (
-	"bytes"
 	"fmt"
-	"time"
-
-	"github.com/snapcore/snapd/systemd"
 )
 
-// fdeInitramfsHelperRuntimeMax is the maximum runtime a helper can execute
-// XXX: what is a reasonable default here?
-var fdeInitramfsHelperRuntimeMax = 2 * time.Minute
-
 func runFDEinitramfsHelper(name string, stdin []byte) (output []byte, err error) {
-	command := []string{name}
-
-	opts := &systemd.RunOptions{
-		Properties: []string{
-			"DefaultDependencies=no",
-			"SystemCallFilter=~@mount",
-			fmt.Sprintf("RuntimeMaxSec=%s", fdeInitramfsHelperRuntimeMax),
-		},
-		Stdin: bytes.NewReader(stdin),
-	}
-
-	sysd := systemd.New(systemd.SystemMode, nil)
-
-	return sysd.Run(command, opts)
+	return nil, fmt.Errorf("FDE initramfs helper not supported in this build")
 }

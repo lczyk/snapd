@@ -26,7 +26,6 @@ import (
 
 	"github.com/snapcore/snapd/client"
 	"github.com/snapcore/snapd/dirs"
-	"github.com/snapcore/snapd/usersession/xdgopenproxy"
 )
 
 var clientConfig = client.Config{
@@ -49,11 +48,8 @@ func main() {
 		}
 	}
 	if len(os.Args) == 3 && os.Args[1] == "user-open" {
-		if err := xdgopenproxy.Run(os.Args[2]); err != nil {
-			fmt.Fprintf(os.Stderr, "user-open error: %v\n", err)
-			os.Exit(1)
-		}
-		os.Exit(0)
+		fmt.Fprintf(os.Stderr, "user-open not supported in this build\n")
+		os.Exit(1)
 	}
 
 	var stdin io.Reader

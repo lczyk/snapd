@@ -27,7 +27,6 @@ import (
 	"net/http"
 
 	"github.com/snapcore/snapd/overlord/auth"
-	"github.com/snapcore/snapd/overlord/fdestate"
 )
 
 var systemSecurebootCmd = &Command{

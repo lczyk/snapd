@@ -22,7 +22,6 @@
 package quota
 
 import (
-	"bytes"
 	"fmt"
 	"path/filepath"
 	"runtime"
@@ -32,9 +31,7 @@ import (
 	// TODO: move this to snap/quantity? or similar
 	"github.com/snapcore/snapd/dirs"
 	"github.com/snapcore/snapd/gadget/quantity"
-	"github.com/snapcore/snapd/progress"
 	"github.com/snapcore/snapd/snap/naming"
-	"github.com/snapcore/snapd/systemd"
 )
 
 // export it for test
@@ -200,24 +197,7 @@ func (grp *Group) GetQuotaResources() Resources {
 // i.e. quota groups without any snaps in them), the memory usage is reported as
 // 0.
 func (grp *Group) CurrentMemoryUsage() (quantity.Size, error) {
-	sysd := systemd.New(systemd.SystemMode, progress.Null)
-
-	// check if this group is actually active, it could not physically exist yet
-	// since it has no snaps in it
-	isActive, err := sysd.IsActive(grp.SliceFileName())
-	if err != nil {
-		return 0, err
-	}
-	if !isActive {
-		return 0, nil
-	}
-
-	mem, err := sysd.CurrentMemoryUsage(grp.SliceFileName())
-	if err != nil {
-		return 0, err
-	}
-
-	return mem, nil
+	return 0, fmt.Errorf("quota memory usage not supported without systemd")
 }
 
 // CurrentTaskUsage returns the current task (processes, threads) usage of the quota group.
@@ -225,23 +205,7 @@ func (grp *Group) CurrentMemoryUsage() (quantity.Size, error) {
 // i.e. quota groups without any snaps in them), the task usage is reported
 // as 0
 func (grp *Group) CurrentTaskUsage() (int, error) {
-	sysd := systemd.New(systemd.SystemMode, progress.Null)
-
-	// check if this group is actually active, it could not physically exist yet
-	// since it has no snaps in it
-	isActive, err := sysd.IsActive(grp.SliceFileName())
-	if err != nil {
-		return 0, err
-	}
-	if !isActive {
-		return 0, nil
-	}
-
-	count, err := sysd.CurrentTasksCount(grp.SliceFileName())
-	if err != nil {
-		return 0, err
-	}
-	return int(count), nil
+	return 0, fmt.Errorf("quota task usage not supported without systemd")
 }
 
 // SliceFileName returns the name of the slice file that should be used for this
@@ -251,27 +215,7 @@ func (grp *Group) CurrentTaskUsage() (int, error) {
 // differ from the snapd friendly group name, mainly in the case that the group
 // is a sub group.
 func (grp *Group) SliceFileName() string {
-	escapedGrpName := systemd.EscapeUnitNamePath(grp.Name)
-	if grp.ParentGroup == "" {
-		// root group name, then the slice unit is just "<name>.slice"
-		return fmt.Sprintf("snap.%s.slice", escapedGrpName)
-	}
-
-	// otherwise we need to track back to get all of the parent elements
-	grpNames := []string{}
-	parentGrp := grp.parentGroup
-	for parentGrp != nil {
-		grpNames = append([]string{parentGrp.Name}, grpNames...)
-		parentGrp = parentGrp.parentGroup
-	}
-
-	buf := &bytes.Buffer{}
-	fmt.Fprintf(buf, "snap.")
-	for _, parentGrpName := range grpNames {
-		fmt.Fprintf(buf, "%s-", systemd.EscapeUnitNamePath(parentGrpName))
-	}
-	fmt.Fprintf(buf, "%s.slice", escapedGrpName)
-	return buf.String()
+	return fmt.Sprintf("snap.%s.slice", grp.Name)
 }
 
 // JournalQuotaSet returns true if the group is subject to

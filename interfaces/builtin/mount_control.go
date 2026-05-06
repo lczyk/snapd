@@ -33,7 +33,6 @@ import (
 	apparmor_sandbox "github.com/snapcore/snapd/sandbox/apparmor"
 	"github.com/snapcore/snapd/snap"
 	"github.com/snapcore/snapd/strutil"
-	"github.com/snapcore/snapd/systemd"
 )
 
 const mountControlSummary = `allows creating transient and persistent mounts`
@@ -579,10 +578,6 @@ func filterAllowedKernelMountOptions(options []string) []string {
 func (iface *mountControlInterface) BeforeConnectPlug(plug *interfaces.ConnectedPlug) error {
 	// The systemd.ListMountUnits() method works by issuing the command
 	// "systemctl show *.mount", but globbing was only added in systemd v209.
-	if err := systemd.EnsureAtLeast(209); err != nil {
-		return err
-	}
-
 	hasMountEntries := false
 	err := enumerateMounts(plug, func(mountInfo *MountInfo) error {
 		hasMountEntries = true

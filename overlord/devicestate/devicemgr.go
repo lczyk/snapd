@@ -46,7 +46,6 @@ import (
 	"github.com/snapcore/snapd/overlord/auth"
 	"github.com/snapcore/snapd/overlord/configstate/config"
 	"github.com/snapcore/snapd/overlord/devicestate/internal"
-	"github.com/snapcore/snapd/overlord/fdestate"
 	"github.com/snapcore/snapd/overlord/hookstate"
 	"github.com/snapcore/snapd/overlord/install"
 	"github.com/snapcore/snapd/overlord/restart"
@@ -54,7 +53,6 @@ import (
 	"github.com/snapcore/snapd/overlord/state"
 	"github.com/snapcore/snapd/overlord/storecontext"
 	"github.com/snapcore/snapd/overlord/swfeats"
-	"github.com/snapcore/snapd/progress"
 	"github.com/snapcore/snapd/release"
 	"github.com/snapcore/snapd/secboot"
 	"github.com/snapcore/snapd/secboot/keys"
@@ -64,7 +62,6 @@ import (
 	"github.com/snapcore/snapd/snapdenv"
 	"github.com/snapcore/snapd/strutil"
 	"github.com/snapcore/snapd/sysconfig"
-	"github.com/snapcore/snapd/systemd"
 	"github.com/snapcore/snapd/timeutil"
 	"github.com/snapcore/snapd/timings"
 )
@@ -76,8 +73,6 @@ var (
 	secbootMarkSuccessful = secboot.MarkSuccessful
 
 	osutilBootID = osutil.BootID
-
-	fdestateAttemptAutoRepairIfNeeded = fdestate.AttemptAutoRepairIfNeeded
 )
 
 var (
@@ -432,50 +427,6 @@ func (m *DeviceManager) shouldMountUbuntuSave(dev snap.Device) bool {
 }
 
 func (m *DeviceManager) ensureUbuntuSaveIsMounted() error {
-	saveMounted, err := osutil.IsMounted(dirs.SnapSaveDir)
-	if err != nil {
-		return err
-	}
-	if saveMounted {
-		logger.Noticef("save already mounted under %v", dirs.SnapSaveDir)
-		return nil
-	}
-
-	runMntSaveMounted, err := osutil.IsMounted(boot.InitramfsUbuntuSaveDir)
-	if err != nil {
-		return err
-	}
-	if !runMntSaveMounted {
-		// we don't have ubuntu-save, save will be used directly
-		logger.Noticef("no ubuntu-save mount")
-		return nil
-	}
-
-	sysd := systemd.New(systemd.SystemMode, progress.Null)
-
-	// In newer core20/core22 we have a mount unit for ubuntu-save, which we
-	// will try to start first. Invoking systemd-mount in this case would fail.
-	err = sysd.Start([]string{"var-lib-snapd-save.mount"})
-	if err == nil {
-		logger.Noticef("mount unit for ubuntu-save was started")
-		return nil
-	} else {
-		// We only fall through and mount directly if the failure was because of a missing
-		// mount file, which possible does not exist. Any other failure we treat as an actual
-		// error.
-		// XXX: systemd ideally should start returning some kind UnitNotFound errors in this situation
-		if !strings.Contains(err.Error(), "Unit var-lib-snapd-save.mount not found.") {
-			return err
-		}
-	}
-
-	// Otherwise try to directly mount the partition with systemd-mount.
-	logger.Noticef("bind-mounting ubuntu-save under %v", dirs.SnapSaveDir)
-	err = sysd.Mount(boot.InitramfsUbuntuSaveDir, dirs.SnapSaveDir, "-o", "bind")
-	if err != nil {
-		logger.Noticef("bind-mounting ubuntu-save failed %v", err)
-		return fmt.Errorf("cannot bind mount %v under %v: %v", boot.InitramfsUbuntuSaveDir, dirs.SnapSaveDir, err)
-	}
 	return nil
 }
 
@@ -1250,36 +1201,6 @@ func (m *DeviceManager) ensureSerialBoundSystemUserAssertionsProcessed() error {
 }
 
 func (m *DeviceManager) ensureFDE() error {
-	m.state.Lock()
-	defer m.state.Unlock()
-
-	if m.SystemMode(SysAny) != "run" {
-		return nil
-	}
-
-	if m.fdeRan {
-		return nil
-	}
-
-	// Auto-repair should be attempted only once.
-	m.fdeRan = true
-
-	logger.Trace("ensure", "manager", "DeviceManager", "func", "ensureFDE")
-
-	// FIXME: we should rename to something like "reset lockout"
-	lockoutResetErr := secbootMarkSuccessful()
-
-	// TODO:FDEM: with new APIs of lockout reset we will get so
-	// more statuses that we will need to react to and
-	// provide to the status API.
-
-	// FIXME: we need to check that a try kernel was attempted here and not attempt
-	// repair in that case.
-
-	if err := fdestateAttemptAutoRepairIfNeeded(m.state, lockoutResetErr); err != nil {
-		return err
-	}
-
 	return nil
 }
 
@@ -1299,57 +1220,6 @@ func markBootOkRanForBootID(st *state.State, currentBootID string) {
 }
 
 func (m *DeviceManager) ensureBootOk() error {
-	m.state.Lock()
-	defer m.state.Unlock()
-
-	// boot-ok/update-boot-revision is only relevant in run-mode
-	if m.SystemMode(SysAny) != "run" {
-		return nil
-	}
-
-	if !m.ensureBootOkRan {
-		currentBootID, err := osutilBootID()
-		if err != nil {
-			return err
-		}
-
-		bootOkRanForCurrentBootID, err := bootOkRanForBootID(m.state, currentBootID)
-		if err != nil {
-			return err
-		}
-
-		if !bootOkRanForCurrentBootID {
-			markBootOkRanForBootID(m.state, currentBootID)
-
-			deviceCtx, err := DeviceCtx(m.state, nil, nil)
-			if err != nil && !errors.Is(err, state.ErrNoState) {
-				return err
-			}
-			if err == nil && deviceCtx.Model().KernelSnap() != nil {
-				// FIXME: we should check if recovery keys
-				// were used and in that case do not mark the
-				// boot successful.
-				if err := boot.MarkBootSuccessful(deviceCtx); err != nil {
-					return err
-				}
-			}
-		} else {
-			// a reseal already ran, nothing to do
-			logger.Noticef("skipping boot ok check since it already ran for boot-id %q", currentBootID)
-		}
-
-		m.ensureBootOkRan = true
-	}
-
-	logger.Trace("ensure", "manager", "DeviceManager", "func", "ensureBootOk")
-
-	if !m.bootRevisionsUpdated {
-		if err := snapstate.UpdateBootRevisions(m.state); err != nil {
-			return err
-		}
-		m.bootRevisionsUpdated = true
-	}
-
 	return nil
 }
 
@@ -1545,167 +1415,10 @@ func (m *DeviceManager) installDeviceHookTask(model *asserts.Model) *state.Task 
 }
 
 func (m *DeviceManager) ensureInstalled() error {
-	m.state.Lock()
-	defer m.state.Unlock()
-
-	if release.OnClassic {
-		return nil
-	}
-
-	if m.ensureInstalledRan {
-		return nil
-	}
-
-	if m.SystemMode(SysHasModeenv) != "install" {
-		return nil
-	}
-
-	var seeded bool
-	err := m.state.Get("seeded", &seeded)
-	if err != nil && !errors.Is(err, state.ErrNoState) {
-		return err
-	}
-	if !seeded {
-		return nil
-	}
-
-	perfTimings := timings.New(map[string]string{"ensure": "install-system"})
-
-	model, err := m.Model()
-	if err != nil {
-		if errors.Is(err, state.ErrNoState) {
-			return fmt.Errorf("internal error: core device brand and model are set but there is no model assertion")
-		}
-		return err
-	}
-
-	// check if the gadget has an install-device hook, do this before
-	// we mark ensureInstalledRan as true, as this can fail if no gadget
-	// snap is present
-	hasInstallDeviceHook, err := m.hasInstallDeviceHook(model)
-	if err != nil {
-		return fmt.Errorf("internal error: %v", err)
-	}
-
-	logger.Trace("ensure", "manager", "DeviceManager", "func", "ensureInstalled")
-
-	m.ensureInstalledRan = true
-
-	// Create both setup-run-system and restart-system-to-run-mode tasks as they
-	// will run unconditionally. They will be chained together with optionally the
-	// install-device hook task.
-	setupRunSystem := m.state.NewTask("setup-run-system", i18n.G("Setup system for run mode"))
-	restartSystem := m.state.NewTask("restart-system-to-run-mode", i18n.G("Ensure next boot to run mode"))
-
-	prev := setupRunSystem
-	tasks := []*state.Task{setupRunSystem}
-	addTask := func(t *state.Task) {
-		t.WaitFor(prev)
-		tasks = append(tasks, t)
-		prev = t
-	}
-
-	// add the install-device hook before ensure-next-boot-to-run-mode if it
-	// exists in the snap
-	if hasInstallDeviceHook {
-		// add the task that ensures ubuntu-save is available after the system
-		// setup to the install-device hook
-		addTask(m.state.NewTask("setup-ubuntu-save", i18n.G("Setup ubuntu-save snap folders")))
-
-		installDevice := m.installDeviceHookTask(model)
-
-		// reference used by snapctl reboot
-		installDevice.Set("restart-task", restartSystem.ID())
-		addTask(installDevice)
-	}
-
-	addTask(restartSystem)
-
-	chg := m.state.NewChange(installSystemChangeKind, i18n.G("Install the system"))
-	chg.AddAll(state.NewTaskSet(tasks...))
-
-	state.TagTimingsWithChange(perfTimings, chg)
-	perfTimings.Save(m.state)
-
 	return nil
 }
 
 func (m *DeviceManager) ensureFactoryReset() error {
-	m.state.Lock()
-	defer m.state.Unlock()
-
-	if release.OnClassic {
-		return nil
-	}
-
-	if m.ensureFactoryResetRan {
-		return nil
-	}
-
-	if m.SystemMode(SysHasModeenv) != "factory-reset" {
-		return nil
-	}
-
-	var seeded bool
-	err := m.state.Get("seeded", &seeded)
-	if err != nil && !errors.Is(err, state.ErrNoState) {
-		return err
-	}
-	if !seeded {
-		return nil
-	}
-	logger.Trace("ensure", "manager", "DeviceManager", "func", "ensureFactoryReset")
-
-	perfTimings := timings.New(map[string]string{"ensure": "factory-reset"})
-
-	model, err := m.Model()
-	if err != nil {
-		if errors.Is(err, state.ErrNoState) {
-			return fmt.Errorf("internal error: core device brand and model are set but there is no model assertion")
-		}
-		return err
-	}
-
-	// We perform this check before setting ensureFactoryResetRan in
-	// case this should fail. This should in theory not be possible as
-	// the same type of check is made during install-mode.
-	hasInstallDeviceHook, err := m.hasInstallDeviceHook(model)
-	if err != nil {
-		return fmt.Errorf("internal error: %v", err)
-	}
-
-	m.ensureFactoryResetRan = true
-
-	// Create both factory-reset-run-system and restart-system-to-run-mode tasks as they
-	// will run unconditionally. They will be chained together with optionally the
-	// install-device hook task.
-	factoryReset := m.state.NewTask("factory-reset-run-system", i18n.G("Perform factory reset of the system"))
-	restartSystem := m.state.NewTask("restart-system-to-run-mode", i18n.G("Ensure next boot to run mode"))
-
-	prev := factoryReset
-	tasks := []*state.Task{factoryReset}
-	addTask := func(t *state.Task) {
-		t.WaitFor(prev)
-		tasks = append(tasks, t)
-		prev = t
-	}
-
-	if hasInstallDeviceHook {
-		installDevice := m.installDeviceHookTask(model)
-
-		// reference used by snapctl reboot
-		installDevice.Set("restart-task", restartSystem.ID())
-		addTask(installDevice)
-	}
-
-	addTask(restartSystem)
-
-	chg := m.state.NewChange(factoryResetChangeKind, i18n.G("Perform factory reset"))
-	chg.AddAll(state.NewTaskSet(tasks...))
-
-	state.TagTimingsWithChange(perfTimings, chg)
-	perfTimings.Save(m.state)
-
 	return nil
 }
 

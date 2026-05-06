@@ -176,7 +176,10 @@ var (
 var featuresSupportedCallbacks = map[SnapdFeature]func() (bool, string){
 	// QuotaGroups requires systemd version 230 or higher
 	QuotaGroups: func() (bool, string) {
-		return false, "systemd not available"
+		if err := systemd.EnsureAtLeast(230); err != nil {
+			return false, err.Error()
+		}
+		return true, ""
 	},
 	// UserDaemons requires user units
 	UserDaemons: func() (bool, string) {

@@ -36,7 +36,6 @@ import (
 	"github.com/snapcore/snapd/secboot/keymgr"
 	"github.com/snapcore/snapd/secboot/keys"
 	"github.com/snapcore/snapd/snapdtool"
-	"github.com/snapcore/snapd/systemd"
 )
 
 var (

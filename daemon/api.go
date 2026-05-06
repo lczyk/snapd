@@ -94,7 +94,6 @@ var api = []*Command{
 	requestsRulesCmd,
 	requestsRuleCmd,
 	systemSecurebootCmd,
-	systemVolumesCmd,
 }
 
 type featureEndpoint struct {

@@ -32,7 +32,6 @@ import (
 	"github.com/snapcore/snapd/sandbox/cgroup"
 	"github.com/snapcore/snapd/snap"
 	"github.com/snapcore/snapd/strutil"
-	userclient "github.com/snapcore/snapd/usersession/client"
 )
 
 // pidsOfSnap is a mockable version of PidsOfSnap

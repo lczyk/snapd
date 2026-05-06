@@ -36,7 +36,6 @@ import (
 	"github.com/snapcore/snapd/snapdtool"
 	"github.com/snapcore/snapd/usersession/agent"
 	"github.com/snapcore/snapd/usersession/autostart"
-	"github.com/snapcore/snapd/usersession/userd"
 )
 
 var autostartSessionApps = autostart.AutostartSessionApps

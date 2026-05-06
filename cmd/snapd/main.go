@@ -36,7 +36,6 @@ import (
 	"github.com/snapcore/snapd/snapdenv"
 	"github.com/snapcore/snapd/snapdtool"
 	"github.com/snapcore/snapd/syscheck"
-	"github.com/snapcore/snapd/systemd"
 )
 
 var (

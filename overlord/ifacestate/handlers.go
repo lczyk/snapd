@@ -43,11 +43,9 @@ import (
 	"github.com/snapcore/snapd/overlord/hookstate"
 	"github.com/snapcore/snapd/overlord/ifacestate/schema"
 	"github.com/snapcore/snapd/overlord/restart"
-	"github.com/snapcore/snapd/overlord/servicestate"
 	"github.com/snapcore/snapd/overlord/snapstate"
 	"github.com/snapcore/snapd/overlord/state"
 	"github.com/snapcore/snapd/snap"
-	"github.com/snapcore/snapd/snap/quota"
 	"github.com/snapcore/snapd/strutil"
 	"github.com/snapcore/snapd/timings"
 )
@@ -75,17 +73,7 @@ func journalQuotaLayout(quotaGroup *quota.Group) []snap.Layout {
 // a snap instance. These are the layouts which can change during the lifetime of a snap
 // like for instance mimicking systemd journal namespace mount layouts.
 func getExtraLayouts(st *state.State, snapInfo *snap.Info) ([]snap.Layout, error) {
-	snapOpts, err := servicestate.SnapServiceOptions(st, snapInfo, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	var extraLayouts []snap.Layout
-	if snapOpts.QuotaGroup != nil {
-		extraLayouts = append(extraLayouts, journalQuotaLayout(snapOpts.QuotaGroup)...)
-	}
-
-	return extraLayouts, nil
+	return nil, nil
 }
 
 func (m *InterfaceManager) buildConfinementOptions(st *state.State, task *state.Task, snapInfo *snap.Info, flags snapstate.Flags) (interfaces.ConfinementOptions, error) {

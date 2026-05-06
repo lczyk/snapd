@@ -43,7 +43,6 @@ import (
 	"github.com/snapcore/snapd/strutil"
 	"github.com/snapcore/snapd/timeutil"
 	"github.com/snapcore/snapd/timings"
-	userclient "github.com/snapcore/snapd/usersession/client"
 )
 
 // the default refresh pattern
@@ -725,32 +724,15 @@ func getTime(st *state.State, timeKey string) (time.Time, error) {
 //
 // This allows the, possibly slow, communication with each snapd session agent,
 // to be performed without holding the snap state lock.
-var asyncPendingRefreshNotification = func(ctx context.Context, refreshInfo *userclient.PendingSnapRefreshInfo) {
-	logger.Debugf("notifying agents about pending refresh for snap %q", refreshInfo.InstanceName)
-
-	go func() {
-		client := userclient.New()
-		if err := client.PendingRefreshNotification(ctx, refreshInfo); err != nil {
-			logger.Noticef("Cannot send notification about pending refresh: %v", err)
-		}
-	}()
+var asyncPendingRefreshNotification = func(ctx context.Context, refreshInfo interface{}) {
+	logger.Debugf("user session notifications not supported in this build")
 }
 
 // maybeAsyncPendingRefreshNotification broadcasts desktop notification in a goroutine.
 //
 // The notification is sent only if no snap has the marker "snap-refresh-observe"
 // interface connected and the "refresh-app-awareness-ux" experimental flag is disabled.
-func maybeAsyncPendingRefreshNotification(ctx context.Context, st *state.State, refreshInfo *userclient.PendingSnapRefreshInfo) {
-
-	sendNotification, err := ShouldSendNotificationsToTheUser(st)
-	if err != nil {
-		logger.Noticef("Cannot send notification about pending refresh: %v", err)
-		return
-	}
-	if !sendNotification {
-		return
-	}
-	asyncPendingRefreshNotification(ctx, refreshInfo)
+func maybeAsyncPendingRefreshNotification(ctx context.Context, st *state.State, refreshInfo interface{}) {
 }
 
 type timedBusySnapError struct {
@@ -758,10 +740,8 @@ type timedBusySnapError struct {
 	timeRemaining time.Duration
 }
 
-func (e *timedBusySnapError) PendingSnapRefreshInfo() *userclient.PendingSnapRefreshInfo {
-	refreshInfo := e.err.PendingSnapRefreshInfo()
-	refreshInfo.TimeRemaining = e.timeRemaining
-	return refreshInfo
+func (e *timedBusySnapError) PendingSnapRefreshInfo() interface{} {
+	return nil
 }
 
 func (e *timedBusySnapError) Error() string {

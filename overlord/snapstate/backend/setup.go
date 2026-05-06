@@ -35,7 +35,6 @@ import (
 	"github.com/snapcore/snapd/progress"
 	"github.com/snapcore/snapd/release"
 	"github.com/snapcore/snapd/snap"
-	"github.com/snapcore/snapd/systemd"
 )
 
 var kernelEnsureKernelDriversTree = kernel.EnsureKernelDriversTree

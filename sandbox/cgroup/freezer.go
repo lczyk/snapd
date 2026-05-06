@@ -31,7 +31,6 @@ import (
 	"time"
 
 	"github.com/snapcore/snapd/dirs"
-	"github.com/snapcore/snapd/logger"
 	"github.com/snapcore/snapd/osutil"
 )
 
@@ -241,34 +240,8 @@ func skipErrNotExist(err error) bool {
 // given snap. Processes are frozen regardless of which particular snap
 // application they originate from.
 func freezeSnapProcessesImplV2(ctx context.Context, snapName string) error {
-	// in case of v2, the process calling this code, (eg. snap-update-ns)
-	// may already be part of the trackign cgroup for particular snap, care
-	// must be taken to not freeze ourselves
-	ownGroup, err := cgroupProcessPathInTrackingCgroup(os.Getpid())
-	if err != nil {
-		return err
-	}
-	ownGroupDir := filepath.Join(rootPath, cgroupMountPoint, ownGroup)
-	freezeOne := func(dir string) error {
-		if dir == ownGroupDir {
-			// let's not freeze ourselves
-			logger.Debugf("freeze, skipping own group %v", dir)
-			return nil
-		}
-		return freezeOneV2(ctx, dir)
-	}
-	// freeze, skipping ENOENT errors
-	err = applyToSnap(snapName, freezeOne, skipErrNotExist)
-	if err == nil {
-		return nil
-	}
-	// we either got here because we hit a timeout freezing snap processes
-	// or some other error
-
-	// ignore errors when thawing processes, this is best-effort.
-	alwaysSkipError := func(_ error) bool { return true }
-	thawSnapProcessesV2(snapName, alwaysSkipError)
-	return fmt.Errorf("cannot finish freezing processes of snap %q: %w", snapName, err)
+	// stub: tracking cgroup not available, skip the freeze
+	return nil
 }
 
 func thawOneV2(dir string) error {

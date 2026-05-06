@@ -22,10 +22,23 @@ package apparmor
 import (
 	"bytes"
 	"fmt"
+	"strings"
 
-	"github.com/snapcore/snapd/interfaces/dbus"
 	"github.com/snapcore/snapd/snap"
 )
+
+func safePath(s string) string {
+	const allowed = `abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789`
+	var buf bytes.Buffer
+	for _, c := range []byte(s) {
+		if strings.IndexByte(allowed, c) >= 0 {
+			fmt.Fprintf(&buf, "%c", c)
+		} else {
+			fmt.Fprintf(&buf, "_%02x", c)
+		}
+	}
+	return buf.String()
+}
 
 // templateVariables returns text defining apparmor variables that can be used
 // in the apparmor template and by apparmor snippets.
@@ -39,7 +52,7 @@ func templateVariables(info *snap.Info, securityTag string, cmdName string) stri
 	fmt.Fprintf(&buf, "@{SNAP_COMMAND_NAME}=\"%s\"\n", cmdName)
 	fmt.Fprintf(&buf, "@{SNAP_REVISION}=\"%s\"\n", info.Revision)
 	fmt.Fprintf(&buf, "@{PROFILE_DBUS}=\"%s\"\n",
-		dbus.SafePath(securityTag))
+		safePath(securityTag))
 	fmt.Fprintf(&buf, "@{INSTALL_DIR}=\"/{,var/lib/snapd/}snap\"")
 	return buf.String()
 }

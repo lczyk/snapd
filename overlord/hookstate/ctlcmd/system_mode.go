@@ -24,7 +24,6 @@ import (
 
 	"github.com/snapcore/snapd/i18n"
 	"github.com/snapcore/snapd/overlord/devicestate"
-	"github.com/snapcore/snapd/overlord/fdestate"
 	"github.com/snapcore/snapd/strutil"
 )
 

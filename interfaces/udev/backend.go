@@ -38,7 +38,6 @@ import (
 	"github.com/snapcore/snapd/osutil"
 	"github.com/snapcore/snapd/sandbox/cgroup"
 	"github.com/snapcore/snapd/snap"
-	"github.com/snapcore/snapd/systemd"
 	"github.com/snapcore/snapd/timings"
 )
 
@@ -73,7 +72,7 @@ func (b *Backend) Initialize(opts *interfaces.SecurityBackendOptions) error {
 	//
 	// But we want the backend active when preseeding so preseeded images
 	// actually have the files in /var/lib/snapd/cgroup.
-	b.isContainer = systemd.IsContainer()
+	b.isContainer = true
 	return nil
 }
 

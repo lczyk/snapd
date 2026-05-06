@@ -382,8 +382,8 @@ func (d *Daemon) Start(ctx context.Context) (err error) {
 		ConnState: d.connTracker.trackConn,
 	}
 
-	// enable standby handling
-	d.initStandbyHandling()
+	// standby disabled -- no systemd socket activation available
+	// d.initStandbyHandling()
 
 	// before serving actual connections remove the maintenance.json file as we
 	// are no longer down for maintenance, this state most closely corresponds
@@ -455,9 +455,9 @@ func (d *Daemon) HandleRestart(t restart.RestartType, rebootInfo *boot.RebootInf
 		scheduleFallback(boot.RebootPoweroff)
 		d.requestedRestart = t
 	case restart.RestartSocket:
-		// save the restart kind to write out a maintenance.json in a bit
-		d.requestedRestart = t
-		d.restartSocket = true
+		// no systemd socket activation -- ignore standby requests
+		logger.Noticef("ignoring socket restart request (no systemd available)")
+		return
 	case restart.StopDaemon:
 		logger.Noticef("stopping snapd as requested")
 	default:
@@ -637,10 +637,7 @@ func (d *Daemon) Stop(sigCh chan<- os.Signal) error {
 		return d.doReboot(sigCh, d.requestedRestart, rebootInfo, immediateShutdown, rebootWaitTimeout)
 	}
 
-	if d.restartSocket {
-		return ErrRestartSocket
-	}
-
+	// restartSocket disabled -- no systemd socket activation
 	if d.requestedRestart == restart.RestartDaemon {
 		logger.Noticef("skipping daemon restart (no systemd available)")
 		d.requestedRestart = restart.RestartUnset

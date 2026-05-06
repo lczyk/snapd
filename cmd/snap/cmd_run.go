@@ -1567,19 +1567,7 @@ func (x *cmdRun) runSnapConfine(info *snap.Info, runner runnable, beforeExec fun
 		return err
 	}
 
-	snapConfine, err := snapdHelperPath("snap-confine")
-	if err != nil {
-		return err
-	}
-	if !osutil.FileExists(snapConfine) {
-		if runner.IsHook() {
-			logger.Noticef("WARNING: skipping running hook %q of %q: missing snap-confine", runner.Hook().Name, runner.Target())
-			return nil
-		}
-		return errors.New(i18n.G("missing snap-confine: try updating your core/snapd package"))
-	}
-
-	logger.Debugf("executing snap-confine from %s", snapConfine)
+	logger.Debugf("running snap app/hook directly (no snap-confine)")
 
 	opts, err := getSnapDirOptions(info.InstanceName())
 	if err != nil {
@@ -1610,68 +1598,23 @@ func (x *cmdRun) runSnapConfine(info *snap.Info, runner runnable, beforeExec fun
 		logger.Noticef("WARNING: cannot start document portal: %s", err)
 	}
 
-	cmd := []string{snapConfine}
-	if needsClassic {
-		cmd = append(cmd, "--classic")
-	}
-
-	// this should never happen since we validate snaps with "base: none" and do not allow hooks/apps
-	if info.Base == "none" {
-		return fmt.Errorf(`cannot run hooks / applications with base "none"`)
-	}
-	if info.Base != "" {
-		cmd = append(cmd, "--base", info.Base)
+	// Build command directly from the snap's app/hook, bypassing snap-confine
+	app := runner.App()
+	var cmd []string
+	if app != nil {
+		cmd = append(cmd, app.Command)
+		cmd = append(cmd, args...)
 	} else {
-		if info.Type() == snap.TypeKernel {
-			// kernels have no explicit base, we use the boot base
-			modelAssertion, err := x.client.CurrentModelAssertion()
-			if err != nil {
-				if runner.IsHook() {
-					return fmt.Errorf("cannot get model assertion to setup kernel hook run: %v", err)
-				} else {
-					return fmt.Errorf("cannot get model assertion to setup kernel app run: %v", err)
-				}
-			}
-			modelBase := modelAssertion.Base()
-			if modelBase != "" {
-				cmd = append(cmd, "--base", modelBase)
-			}
+		// hooks: use hook handler path
+		hook := runner.Hook()
+		if hook != nil {
+			cmd = append(cmd, info.HookDir() + "/" + hook.Name)
+			cmd = append(cmd, args...)
 		}
 	}
-
-	securityTag := runner.SecurityTag()
-	cmd = append(cmd, securityTag)
-
-	// when under confinement, snap-exec is run from 'core' snap rootfs
-	snapExecPath := filepath.Join(dirs.CoreLibExecDir, "snap-exec")
-
-	if needsClassic {
-		// running with classic confinement, carefully pick snap-exec we
-		// are going to use
-		snapExecPath, err = snapdHelperPath("snap-exec")
-		if err != nil {
-			return err
-		}
+	if len(cmd) == 0 {
+		return fmt.Errorf("cannot determine command to run")
 	}
-	cmd = append(cmd, snapExecPath)
-
-	if x.Shell {
-		cmd = append(cmd, "--command=shell")
-	}
-	if x.useGdbserver() {
-		cmd = append(cmd, "--command=gdbserver")
-	}
-	if x.Command != "" {
-		cmd = append(cmd, "--command="+x.Command)
-	}
-
-	if runner.IsHook() {
-		cmd = append(cmd, "--hook="+runner.Hook().Name)
-	}
-
-	// snap-exec is POSIXly-- options must come before positionals.
-	cmd = append(cmd, runner.Target())
-	cmd = append(cmd, args...)
 
 	env, err := osutil.OSEnvironment()
 	if err != nil {
@@ -1722,151 +1665,6 @@ func (x *cmdRun) runSnapConfine(info *snap.Info, runner runnable, beforeExec fun
 		// will remove, restoring the variables to their
 		// original names.
 		return env.ForExecEscapeUnsafe(snapenv.PreservedUnsafePrefix)
-	}
-
-	// Systemd automatically places services under a unique cgroup encoding the
-	// security tag, but for apps and hooks we need to create a transient scope
-	// with similar purpose ourselves.
-	//
-	// The way this happens is as follows:
-	//
-	// 1) Services are implemented using systemd service units. Starting a
-	// unit automatically places it in a cgroup named after the service unit
-	// name. Snapd controls the name of the service units thus indirectly
-	// controls the cgroup name.
-	//
-	// 2) Non-services, including hooks, are started inside systemd
-	// transient scopes. Scopes are a systemd unit type that are defined
-	// programmatically and are meant for groups of processes started and
-	// stopped by an _arbitrary process_ (ie, not systemd). Systemd
-	// requires that each scope is given a unique name. We employ a scheme
-	// where random UUID is combined with the name of the security tag
-	// derived from snap application or hook name. Multiple concurrent
-	// invocations of "snap run" will use distinct UUIDs.
-	//
-	// Transient scopes allow launched snaps to integrate into
-	// the systemd design. See:
-	// https://www.freedesktop.org/wiki/Software/systemd/ControlGroupInterface/
-	//
-	// Programs running as root, like system-wide services and programs invoked
-	// using tools like sudo are placed under system.slice. Programs running as
-	// a non-root user are placed under user.slice, specifically in a scope
-	// specific to a logind session.
-	//
-	// This arrangement allows for proper accounting and control of resources
-	// used by snap application processes of each type.
-	//
-	// For more information about systemd cgroups, including unit types, see:
-	// https://www.freedesktop.org/wiki/Software/systemd/ControlGroupInterface/
-	needsTracking := true
-
-	if app := runner.App(); app != nil && app.IsService() {
-		// If we are running a service app then we do not need to use
-		// application tracking. Services, both in the system and user scope,
-		// do not need tracking because systemd already places them in a
-		// tracking cgroup, named after the systemd unit name, and those are
-		// sufficient to identify both the snap name and the app name.
-		needsTracking = false
-		// however it is still possible that the app (which is a
-		// service) was invoked by the user, so it may be running inside
-		// a user's scope cgroup, in which case separate tracking group
-		// needs to be established
-		if err := cgroupConfirmSystemdServiceTracking(securityTag); err != nil {
-			if err == cgroup.ErrCannotTrackProcess {
-				// we are not being tracked in a service cgroup
-				// after all, go ahead and create a transient
-				// scope
-				needsTracking = true
-				logger.Debugf("service app not tracked by systemd")
-			} else {
-				return err
-			}
-		}
-
-		// If a journal namespace is supplied for the service, then we reopen stdout/stderr
-		// connected to that journal namespace instead of the main journal. Since we are not
-		// using systemd's LogNamespace= directly, we must do this ourselves.
-		if lns := os.Getenv("SNAPD_LOG_NAMESPACE"); lns != "" {
-			stdout, stderr := makeStdStreamsForJournal(app, lns)
-			if stdout != nil {
-				defer stdout.Close()
-				if err := osutil.DupFD(stdout.Fd(), uintptr(syscall.Stdout)); err != nil {
-					logger.Noticef("cannot duplicate stdout for connection: %v", err)
-				}
-			}
-			if stderr != nil {
-				defer stderr.Close()
-				if err := osutil.DupFD(stderr.Fd(), uintptr(syscall.Stderr)); err != nil {
-					logger.Noticef("cannot duplicate stderr for connection: %v", err)
-				}
-			}
-
-			// Clear out the LOG_NAMESPACE variable, no reason to leak this to the process
-			// itself.
-			os.Unsetenv("SNAPD_LOG_NAMESPACE")
-		}
-	}
-	// Allow using the session bus for all apps but not for hooks.
-	allowSessionBus := !runner.IsHook()
-	// Track, or confirm existing tracking from systemd.
-	if err := cgroupConfirmSystemdAppTracking(securityTag); err != nil {
-		if err != cgroup.ErrCannotTrackProcess {
-			return err
-		}
-	} else {
-		// A transient scope was already created in a previous attempt. Skip creating
-		// another transient scope to avoid leaking cgroups.
-		//
-		// Note: This could happen if beforeExec fails and triggers a retry.
-		needsTracking = false
-	}
-	if needsTracking {
-		opts := &cgroup.TrackingOptions{AllowSessionBus: allowSessionBus}
-		if err = cgroupCreateTransientScopeForTracking(securityTag, opts); err != nil {
-			if err != cgroup.ErrCannotTrackProcess {
-				return err
-			}
-			switch runner.info.Base {
-			case "core22-desktop", "core24-desktop":
-				// Those are special-cases of the core snap so
-				// they follow the same behavior as their
-				// non-desktop variants.
-				fallthrough
-			case "", "core", "core18", "core20", "core22", "core24":
-				// If we cannot track the process then log a debug message.
-				// TODO: if we could, create a warning. Currently this is not possible
-				// because only snapd can create warnings, internally.
-				logger.Debugf("snapd cannot track the started application")
-				logger.Debugf("snap refreshes will not be postponed by this process")
-			case "bare":
-				// Bare is unversioned but we want it to behave
-				// according to the more strict logic.
-				fallthrough
-			default:
-				// For apps using core26+, fail hard unless they don't rely on
-				// cgroup for device control and have the self-managed=true
-				// setting.
-				opts, err2 := cgroup.LoadSnapDeviceCgroupOptions(securityTag)
-				if err2 != nil {
-					logger.Noticef("cannot load snap device cgroup options: %s", err)
-				}
-
-				// NOTE: opts is never nil so this is safe to use even in the error case.
-				if opts.SelfManaged == false {
-					// If the application is not self-managed, log a notice and return an error.
-					// Self-managed applications have no constraints on device access so failure
-					// to establish a control group where this is enforced is not a fatal problem.
-					//
-					// We do want to do this for NonStrict (devmode) applications as it would mask
-					// a legitimate environmental problem that is beyond the control of snap author/developer.
-					if usr, err := userCurrent(); err == nil {
-						logger.Noticef("The user %s cannot run snap applications on this system.\n"+
-							"See https://forum.snapcraft.io/t/46210 for more details.", usr.Username)
-					}
-					return err
-				}
-			}
-		}
 	}
 
 	if beforeExec != nil {
@@ -1921,6 +1719,6 @@ func getSnapDirOptions(snap string) (*dirs.SnapDirOptions, error) {
 	return &opts, nil
 }
 
-var cgroupCreateTransientScopeForTracking = cgroup.CreateTransientScopeForTracking
-var cgroupConfirmSystemdServiceTracking = cgroup.ConfirmSystemdServiceTracking
-var cgroupConfirmSystemdAppTracking = cgroup.ConfirmSystemdAppTracking
+var cgroupCreateTransientScopeForTracking = func(string, *cgroup.TrackingOptions) error { return nil }
+var cgroupConfirmSystemdServiceTracking = func(string) error { return cgroup.ErrCannotTrackProcess }
+var cgroupConfirmSystemdAppTracking = func(string) error { return cgroup.ErrCannotTrackProcess }

@@ -82,8 +82,6 @@ var api = []*Command{
 	validationSetsCmd,
 	routineConsoleConfStartCmd,
 	systemRecoveryKeysCmd,
-	quotaGroupsCmd,
-	quotaGroupInfoCmd,
 	confdbCmd,
 	confdbControlCmd,
 	noticesCmd,

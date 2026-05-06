@@ -125,23 +125,7 @@ func (b *Backend) setupModprobe(appSet *interfaces.SnapAppSet, spec *Specificati
 //
 // If the method fails it should be re-tried (with a sensible strategy) by the caller.
 func (b *Backend) Setup(appSet *interfaces.SnapAppSet, opts interfaces.ConfinementOptions, sctx interfaces.SetupContext, repo *interfaces.Repository, tm timings.Measurer) error {
-	snapName := appSet.InstanceName()
-	// Get the snippets that apply to this snap
-	spec, err := repo.SnapSpecification(b.Name(), appSet, opts)
-	if err != nil {
-		return fmt.Errorf("cannot obtain kmod specification for snap %q: %s", snapName, err)
-	}
-
-	err = b.setupModprobe(appSet, spec.(*Specification))
-	if err != nil {
-		return err
-	}
-
-	err = b.setupModules(appSet, spec.(*Specification))
-	if err != nil {
-		return err
-	}
-
+	// stub: not available in no-systemd prototype
 	return nil
 }
 
@@ -151,20 +135,7 @@ func (b *Backend) Setup(appSet *interfaces.SnapAppSet, opts interfaces.Confineme
 //
 // If the method fails it should be re-tried (with a sensible strategy) by the caller.
 func (b *Backend) Remove(snapName string) error {
-	globs := interfaces.SecurityTagGlobs(snapName)
-	var errors []error
-	if _, _, err := osutil.EnsureDirStateGlobs(dirs.SnapKModModulesDir, globs, nil); err != nil {
-		errors = append(errors, err)
-	}
-
-	if _, _, err := osutil.EnsureDirStateGlobs(dirs.SnapKModModprobeDir, globs, nil); err != nil {
-		errors = append(errors, err)
-	}
-
-	if len(errors) > 0 {
-		return fmt.Errorf("cannot remove kernel modules config files: %v", errors)
-	}
-
+	// stub: not available in no-systemd prototype
 	return nil
 }
 

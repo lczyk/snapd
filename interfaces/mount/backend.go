@@ -35,10 +35,8 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"os"
 
 	"github.com/snapcore/snapd/cmd/snaplock"
-	"github.com/snapcore/snapd/dirs"
 	"github.com/snapcore/snapd/interfaces"
 	"github.com/snapcore/snapd/logger"
 	"github.com/snapcore/snapd/osutil"
@@ -73,66 +71,8 @@ const (
 
 // Setup creates mount mount profile files specific to a given snap.
 func (b *Backend) Setup(appSet *interfaces.SnapAppSet, opts interfaces.ConfinementOptions, sctx interfaces.SetupContext, repo *interfaces.Repository, tm timings.Measurer) error {
-	// Record all changes to the mount system for this snap.
-	snapName := appSet.InstanceName()
-	spec, err := repo.SnapSpecification(b.Name(), appSet, opts)
-	if err != nil {
-		return fmt.Errorf("cannot obtain mount security snippets for snap %q: %s", snapName, err)
-	}
-
-	snapInfo := appSet.Info()
-
-	ms := spec.(*Specification)
-	ms.AddOvername(snapInfo)
-	ms.AddLayout(snapInfo)
-	ms.AddExtraLayouts(opts.ExtraLayouts)
-	content := deriveContent(spec.(*Specification), snapInfo)
-	// synchronize the content with the filesystem
-	glob := fmt.Sprintf("snap.%s.*fstab", snapName)
-	dir := dirs.SnapMountPolicyDir
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return fmt.Errorf("cannot create directory for mount configuration files %q: %s", dir, err)
-	}
-
-	chg, rm, err := osutil.EnsureDirState(dir, glob, content)
-	if err != nil {
-		return fmt.Errorf("cannot synchronize mount configuration files for snap %q: %s", snapName, err)
-	}
-
-	mutated := len(chg) != 0 || len(rm) != 0
-	if !mutated {
-		// no changes in mount profiles, nothing to do
-		return nil
-	}
-
-	// The snap's mount namespace update can either be immediate or be delayed.
-	// In most cases, we want the update to be immediate, such as our own
-	// update, new connection, or during rebuilding of all profiles. However if
-	// we're indirectly affected by another snap update, delaying until the
-	// update of triggering snap is useful to ensure robustness.
-	// Actual delaying of mount namespace update depends on the source of
-	// the content, which can be:
-	// - our own snap
-	// - the content providers have been updated
-	// - the host
-	if sctx.CanDelayEffects && sctx.Reason == interfaces.SnapSetupReasonConnectedSlotProviderUpdate {
-		// The caller indicates support for delaying side effects and we're
-		// indirectly affected by another snap update. This could be snap with
-		// 'system' slots such as snapd, or another snap with content slots to
-		// which we are connected.
-		logger.Debugf("delaying update of mount namespaces for snap %q (triggered due to slot provider update)",
-			appSet.InstanceName())
-
-		if sctx.DelayEffect != nil {
-			sctx.DelayEffect(b, interfaces.DelayedSideEffect{
-				ID:          DelayedConsumerMountNsUpdate,
-				Description: "mount namespace update triggered by slot provider update",
-			})
-		}
-		return nil
-	}
-
-	return b.updateOrDiscard(snapName, snapInfo)
+	// stub: not available in no-systemd prototype
+	return nil
 }
 
 // updateOrDiscard attempts to update the mount namespace for a snap, and if
@@ -161,12 +101,8 @@ func (b *Backend) updateOrDiscard(snapName string, snapInfo *snap.Info) error {
 //
 // This method should be called after removing a snap.
 func (b *Backend) Remove(snapName string) error {
-	glob := fmt.Sprintf("snap.%s.*fstab", snapName)
-	_, _, err := osutil.EnsureDirState(dirs.SnapMountPolicyDir, glob, nil)
-	if err != nil {
-		return fmt.Errorf("cannot synchronize mount configuration files for snap %q: %s", snapName, err)
-	}
-	return DiscardSnapNamespace(snapName)
+	// stub: not available in no-systemd prototype
+	return nil
 }
 
 // addMountProfile adds a mount profile with the given name, based on the given entries.

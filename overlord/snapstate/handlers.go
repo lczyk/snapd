@@ -682,8 +682,6 @@ func hasAllContentAttrs(st *state.State, snapName string, requiredContentAttrs [
 }
 
 func (m *SnapManager) installPrereqs(t *state.Task, base string, prereq map[string][]string, userID int, tm timings.Measurer, flags Flags) error {
-	st := t.State()
-
 	// If transactional, use a single lane for all tasks, so when
 	// one fails the changes for all affected snaps will be
 	// undone. Otherwise, have different lanes per snap so
@@ -743,30 +741,9 @@ func (m *SnapManager) installPrereqs(t *state.Task, base string, prereq map[stri
 	// install snapd snap (covers LP: 1819318). Not allowed for
 	// Ubuntu Core systems - requires remodeling.
 	var tsSnapd *state.TaskSet
-	snapdSnapInstalled, err := isInstalled(st, "snapd")
-	if err != nil {
-		return err
-	}
 
-	// consider the state of seeding to avoid seed conflict error
-	var seeded bool
-	err = st.Get("seeded", &seeded)
-	if err != nil && !errors.Is(err, state.ErrNoState) {
-		return err
-	}
 
-	if release.OnClassic && seeded && !snapdSnapInstalled {
-		timings.Run(tm, "install-prereq", "install snapd", func(timings.Measurer) {
-			noTypeBaseCheck := false
-			tsSnapd, err = m.installOneBaseOrRequired(t, "snapd", nil, noTypeBaseCheck, defaultSnapdSnapsChannel(), onInFlightErr, userID, Flags{
-				Transaction: flags.Transaction,
-				Lane:        flags.Lane,
-			})
-		})
-		if err != nil {
-			return prereqError("system snap", "snapd", err)
-		}
-	}
+
 
 	chg := t.Change()
 	// add all required snaps, no ordering, this will be done in the

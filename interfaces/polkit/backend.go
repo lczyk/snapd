@@ -29,13 +29,10 @@ package polkit
 
 import (
 	"fmt"
-	"os"
 
-	"github.com/snapcore/snapd/dirs"
 	"github.com/snapcore/snapd/interfaces"
 	"github.com/snapcore/snapd/osutil"
 	"github.com/snapcore/snapd/snap"
-	"github.com/snapcore/snapd/strutil"
 	"github.com/snapcore/snapd/timings"
 )
 
@@ -70,39 +67,7 @@ func (b *Backend) Prepare(_ *interfaces.SnapAppSet) error {
 //
 // Polkit has no concept of a complain mode so confinment type is ignored.
 func (b *Backend) Setup(appSet *interfaces.SnapAppSet, opts interfaces.ConfinementOptions, sctx interfaces.SetupContext, repo *interfaces.Repository, tm timings.Measurer) error {
-	snapName := appSet.InstanceName()
-	// Get the policies and rules that apply to this snap
-	spec, err := repo.SnapSpecification(b.Name(), appSet, opts)
-	if err != nil {
-		return fmt.Errorf("cannot obtain polkit specification for snap %q: %s", snapName, err)
-	}
-
-	// Get the policy files that this snap should have
-	glob := polkitPolicyName(snapName, "*")
-	content := derivePoliciesContent(spec.(*Specification), appSet)
-	dir := dirs.SnapPolkitPolicyDir
-	// If we do not have any content to write, there is no point
-	// ensuring the directory exists.
-	if content != nil {
-		if err := os.MkdirAll(dir, 0755); err != nil {
-			return fmt.Errorf("cannot create directory for polkit policy files %q: %s", dir, err)
-		}
-	}
-	_, _, err = osutil.EnsureDirState(dir, glob, content)
-	if err != nil {
-		return fmt.Errorf("cannot synchronize polkit policy files for snap %q: %s", snapName, err)
-	}
-
-	// Get the rule files that this snap should have
-	glob = polkitRuleName(snapName, "*")
-	content = deriveRulesContent(spec.(*Specification), appSet)
-	// Rules directory should already exist as it comes with distro packaging, don't attempt
-	// to create it to avoid messing with permissions and just fail if it doesn't exist.
-	_, _, err = osutil.EnsureDirState(dirs.SnapPolkitRuleDir, glob, content)
-	if err != nil {
-		return fmt.Errorf("cannot synchronize polkit rule files for snap %q: %s", snapName, err)
-	}
-
+	// stub: not available in no-systemd prototype
 	return nil
 }
 
@@ -110,14 +75,7 @@ func (b *Backend) Setup(appSet *interfaces.SnapAppSet, opts interfaces.Confineme
 //
 // This method should be called after removing a snap.
 func (b *Backend) Remove(snapName string) error {
-	// Removal must be best-effort to avoid leaving dangling files on early errors.
-	glob := polkitPolicyName(snapName, "*")
-	_, _, policyErr := osutil.EnsureDirState(dirs.SnapPolkitPolicyDir, glob, nil)
-	glob = polkitRuleName(snapName, "*")
-	_, _, ruleErr := osutil.EnsureDirState(dirs.SnapPolkitRuleDir, glob, nil)
-	if policyErr != nil || ruleErr != nil {
-		return fmt.Errorf("cannot synchronize polkit files for snap %q: %s", snapName, strutil.JoinErrors(policyErr, ruleErr))
-	}
+	// stub: not available in no-systemd prototype
 	return nil
 }
 

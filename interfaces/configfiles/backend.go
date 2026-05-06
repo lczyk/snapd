@@ -57,21 +57,8 @@ func (b *Backend) Prepare(_ *interfaces.SnapAppSet) error {
 //
 // If the method fails it should be re-tried (with a sensible strategy) by the caller.
 func (b *Backend) Setup(appSet *interfaces.SnapAppSet, opts interfaces.ConfinementOptions, sctx interfaces.SetupContext, repo *interfaces.Repository, tm timings.Measurer) error {
-	cfgPatterns := []string{}
-	for _, iface := range repo.AllInterfaces() {
-		if cfgIface, ok := iface.(interfaces.ConfigfilesUser); ok {
-			cfgPatterns = append(cfgPatterns, cfgIface.PathPatterns()...)
-		}
-	}
-	snapName := appSet.InstanceName()
-	// Get the snippets that apply to this snap
-	spec, err := repo.SnapSpecification(b.Name(), appSet, opts)
-	if err != nil {
-		return fmt.Errorf("cannot obtain configfiles specification for snap %q: %s",
-			snapName, err)
-	}
-
-	return b.ensureConfigfiles(spec.(*Specification), cfgPatterns)
+	// stub: not available in no-systemd prototype
+	return nil
 }
 
 // Remove removes modules configfiles files specific to a given snap.
@@ -79,14 +66,7 @@ func (b *Backend) Setup(appSet *interfaces.SnapAppSet, opts interfaces.Confineme
 //
 // If the method fails it should be re-tried (with a sensible strategy) by the caller.
 func (b *Backend) Remove(snapName string) error {
-	// If called for the system (snapd) snap, that is possible only in a
-	// classic scenario when all other snaps in the system must have been
-	// removed already to allow the removal of the snapd snap. In that
-	// case, the config files will have already been removed by a Setup
-	// call, so we do not need to do anything here.
-
-	// TODO but this needs to be revisited for when we start supporting
-	// configfiles plugs in snaps.
+	// stub: not available in no-systemd prototype
 	return nil
 }
 

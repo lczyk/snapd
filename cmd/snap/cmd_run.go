@@ -1580,13 +1580,16 @@ func (x *cmdRun) runSnapConfine(info *snap.Info, runner runnable, beforeExec fun
 	app := runner.App()
 	var cmd []string
 	if app != nil {
-		cmd = append(cmd, app.Command)
+		// Resolve relative command to absolute path within the snap mount
+		cmdPath := filepath.Join(info.MountDir(), app.Command)
+		cmd = append(cmd, cmdPath)
 		cmd = append(cmd, args...)
 	} else {
 		// hooks: use hook handler path
 		hook := runner.Hook()
 		if hook != nil {
-			cmd = append(cmd, filepath.Join(info.MountDir(), "meta", "hooks") + "/" + hook.Name)
+			cmdPath := filepath.Join(info.MountDir(), "meta", "hooks", hook.Name)
+			cmd = append(cmd, cmdPath)
 			cmd = append(cmd, args...)
 		}
 	}

@@ -23,8 +23,9 @@ RUN mkdir -p /seed-out/var/lib/snapd/seed \
 FROM ubuntu:24.04
 RUN apt-get update && apt-get install -y squashfuse fuse libcap2-bin ca-certificates tini squashfs-tools && rm -rf /var/lib/apt/lists/*
 COPY --from=builder /out/snapd /usr/local/bin/
-COPY --from=builder /out/snap /usr/local/bin/
+COPY --from=builder /out/snap /usr/bin/
 COPY --from=builder /out/snapctl /usr/local/bin/
+RUN ln -sf /usr/bin/snap /usr/local/bin/snap
 COPY --from=seed-builder /seed-out/var/lib/snapd/seed /var/lib/snapd/seed/
 
 COPY entrypoint.sh /usr/local/bin/

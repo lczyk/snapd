@@ -1,6 +1,6 @@
 #!/bin/sh
 set -e
-mkdir -p /run/snapd /snap /var/lib/snapd /var/lib/snapd/snaps /var/lib/snapd/cookie
+mkdir -p /run/snapd /snap /var/lib/snapd /var/lib/snapd/snaps /var/lib/snapd/cookie /snap/bin
 /usr/local/bin/snapd &
 SNAPD=$!
 for i in $(seq 1 30); do

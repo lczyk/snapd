@@ -494,45 +494,8 @@ func (b *Backend) prepareProfiles(appSet *interfaces.SnapAppSet, opts interfaces
 // This method should be called after changing plug, slots, connections between
 // them or application present in the snap.
 func (b *Backend) Setup(appSet *interfaces.SnapAppSet, opts interfaces.ConfinementOptions, sctx interfaces.SetupContext, repo *interfaces.Repository, tm timings.Measurer) error {
-	prof, err := b.prepareProfiles(appSet, opts, repo)
-	if err != nil {
-		return err
-	}
-
-	snapInfo := appSet.Info()
-
-	// Load all changed profiles with a flag that asks apparmor to skip reading
-	// the cache (since we know those changed for sure).  This allows us to
-	// work despite time being wrong (e.g. in the past). For more details see
-	// https://forum.snapcraft.io/t/apparmor-profile-caching/1268/18
-	var errReloadChanged error
-	aaFlags := apparmor_sandbox.SkipReadCache
-	if b.preseed {
-		aaFlags |= apparmor_sandbox.SkipKernelLoad
-	}
-	timings.Run(tm, "load-profiles[changed]", fmt.Sprintf("load changed security profiles of snap %q", snapInfo.InstanceName()), func(nesttm timings.Measurer) {
-		errReloadChanged = loadProfiles(prof.changed, apparmor_sandbox.CacheDir, aaFlags)
-	})
-
-	// Load all unchanged profiles anyway. This ensures those are correct in
-	// the kernel even if the files on disk were not changed. We rely on
-	// apparmor cache to make this performant.
-	var errReloadOther error
-	aaFlags = 0
-	if b.preseed {
-		aaFlags |= apparmor_sandbox.SkipKernelLoad
-	}
-	timings.Run(tm, "load-profiles[unchanged]", fmt.Sprintf("load unchanged security profiles of snap %q", snapInfo.InstanceName()), func(nesttm timings.Measurer) {
-		errReloadOther = loadProfiles(prof.unchanged, apparmor_sandbox.CacheDir, aaFlags)
-	})
-	errRemoveCached := removeCachedProfiles(prof.removed, apparmor_sandbox.CacheDir)
-	if errReloadChanged != nil {
-		return errReloadChanged
-	}
-	if errReloadOther != nil {
-		return errReloadOther
-	}
-	return errRemoveCached
+	// stub: not available in no-systemd prototype
+	return nil
 }
 
 // SetupMany creates and loads apparmor profiles for multiple snaps.
@@ -543,66 +506,8 @@ func (b *Backend) Setup(appSet *interfaces.SnapAppSet, opts interfaces.Confineme
 //
 // This method is useful mainly for regenerating profiles.
 func (b *Backend) SetupMany(appSets []*interfaces.SnapAppSet, confinement func(snapName string) interfaces.ConfinementOptions, sctx func(snapName string) interfaces.SetupContext, repo *interfaces.Repository, tm timings.Measurer) []error {
-	var allChangedPaths, allUnchangedPaths, allRemovedPaths []string
-	var fallback bool
-	for _, set := range appSets {
-		opts := confinement(set.InstanceName())
-		prof, err := b.prepareProfiles(set, opts, repo)
-		if err != nil {
-			fallback = true
-			break
-		}
-		allChangedPaths = append(allChangedPaths, prof.changed...)
-		allUnchangedPaths = append(allUnchangedPaths, prof.unchanged...)
-		allRemovedPaths = append(allRemovedPaths, prof.removed...)
-	}
-
-	if !fallback {
-		aaFlags := apparmor_sandbox.SkipReadCache | apparmor_sandbox.ConserveCPU
-		if b.preseed {
-			aaFlags |= apparmor_sandbox.SkipKernelLoad
-		}
-		var errReloadChanged error
-		timings.Run(tm, "load-profiles[changed-many]", fmt.Sprintf("load changed security profiles of %d snaps", len(appSets)), func(nesttm timings.Measurer) {
-			errReloadChanged = loadProfiles(allChangedPaths, apparmor_sandbox.CacheDir, aaFlags)
-		})
-
-		aaFlags = apparmor_sandbox.ConserveCPU
-		if b.preseed {
-			aaFlags |= apparmor_sandbox.SkipKernelLoad
-		}
-		var errReloadOther error
-		timings.Run(tm, "load-profiles[unchanged-many]", fmt.Sprintf("load unchanged security profiles %d snaps", len(appSets)), func(nesttm timings.Measurer) {
-			errReloadOther = loadProfiles(allUnchangedPaths, apparmor_sandbox.CacheDir, aaFlags)
-		})
-
-		errRemoveCached := removeCachedProfiles(allRemovedPaths, apparmor_sandbox.CacheDir)
-		if errReloadChanged != nil {
-			logger.Noticef("failed to batch-reload changed profiles: %s", errReloadChanged)
-			fallback = true
-		}
-		if errReloadOther != nil {
-			logger.Noticef("failed to batch-reload unchanged profiles: %s", errReloadOther)
-			fallback = true
-		}
-		if errRemoveCached != nil {
-			logger.Noticef("failed to batch-remove cached profiles: %s", errRemoveCached)
-			fallback = true
-		}
-	}
-
-	var errors []error
-	// if an error was encountered when processing all profiles at once, re-try them one by one
-	if fallback {
-		for _, set := range appSets {
-			instanceName := set.InstanceName()
-			opts := confinement(instanceName)
-			if err := b.Setup(set, opts, sctx(instanceName), repo, tm); err != nil {
-				errors = append(errors, fmt.Errorf("cannot setup profiles for snap %q: %s", instanceName, err))
-			}
-		}
-	}
-	return errors
+	// stub: not available in no-systemd prototype
+	return nil
 }
 
 // Removes all AppArmor profiles from disk but does not unload them from the
@@ -629,36 +534,13 @@ func RemoveAllSnapAppArmorProfiles() error {
 
 // Remove removes the apparmor profiles of a given snap from disk and the cache.
 func (b *Backend) Remove(snapName string) error {
-	dir := dirs.SnapAppArmorDir
-	globs := profileGlobs(snapName)
-	cache := apparmor_sandbox.CacheDir
-	_, removed, errEnsure := osutil.EnsureDirStateGlobs(dir, globs, nil)
-	// always try to remove affected profiles from the cache
-	errRemoveCached := removeCachedProfiles(removed, cache)
-	if errEnsure != nil {
-		return fmt.Errorf("cannot synchronize security files for snap %q: %s", snapName, errEnsure)
-	}
-	return errRemoveCached
+	// stub: not available in no-systemd prototype
+	return nil
 }
 
 func (b *Backend) RemoveLate(snapName string, rev snap.Revision, typ snap.Type) error {
-	logger.Debugf("remove late for snap %v (%s) type %v", snapName, rev, typ)
-	if typ != snap.TypeSnapd {
-		// late remove is relevant only for snap confine profiles
-		return nil
-	}
-
-	globs := []string{snapConfineProfileName(snapName, rev)}
-	_, removed, errEnsure := osutil.EnsureDirStateGlobs(dirs.SnapAppArmorDir, globs, nil)
-	// XXX: we should also try and unload the profile from the kernel
-	// instead of just removing it from the cache but currently it is not
-	// possible to ensure all snap services are stopped at this time and so
-	// it is not safe to unload the profile
-	errRemoveCached := removeCachedProfiles(removed, apparmor_sandbox.CacheDir)
-	if errEnsure != nil {
-		return fmt.Errorf("cannot remove security profiles for snap %q (%s): %s", snapName, rev, errEnsure)
-	}
-	return errRemoveCached
+	// stub: not available in no-systemd prototype
+	return nil
 }
 
 var (

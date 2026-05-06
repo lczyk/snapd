@@ -438,8 +438,9 @@ func (d *Daemon) HandleRestart(t restart.RestartType, rebootInfo *boot.RebootInf
 	// die when asked to restart (systemd should get us back up!) etc
 	switch t {
 	case restart.RestartDaemon:
-		// save the restart kind to write out a maintenance.json in a bit
-		d.requestedRestart = t
+		// skip daemon restart - no systemd to restart us
+		logger.Noticef("skipping daemon restart request (no systemd available)")
+		return
 	case restart.RestartSystem, restart.RestartSystemNow:
 		// try to schedule a fallback slow reboot already here
 		// in case we get stuck shutting down

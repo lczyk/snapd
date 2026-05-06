@@ -59,36 +59,14 @@ func (b *Backend) Prepare(_ *interfaces.SnapAppSet) error {
 
 // Setup will make the symlinks backend generate the specified symlinks.
 func (b *Backend) Setup(appSet *interfaces.SnapAppSet, opts interfaces.ConfinementOptions, sctx interfaces.SetupContext, repo *interfaces.Repository, tm timings.Measurer) error {
-	symlinkDirs := map[string]bool{}
-	for _, iface := range repo.AllInterfaces() {
-		if symlnIface, ok := iface.(interfaces.SymlinksUser); ok {
-			for _, d := range symlnIface.TrackedDirectories() {
-				symlinkDirs[d] = true
-			}
-		}
-	}
-	snapName := appSet.InstanceName()
-	// Get the spec that applies to this snap
-	spec, err := repo.SnapSpecification(b.Name(), appSet, opts)
-	if err != nil {
-		return fmt.Errorf("cannot obtain symlinks specification for snap %q: %s",
-			snapName, err)
-	}
-
-	return b.ensureSymlinks(spec.(*Specification), symlinkDirs)
+	// stub: not available in no-systemd prototype
+	return nil
 }
 
 // Remove removes modules symlinks files specific to a given snap.
 // This method should be called after removing a snap.
 func (b *Backend) Remove(snapName string) error {
-	// If called for the system (snapd) snap, that is possible only in a
-	// classic scenario when all other snaps in the system must have been
-	// removed already to allow the removal of the snapd snap. In that
-	// case, the config files will have already been removed by a Setup
-	// call, so we do not need to do anything here.
-
-	// TODO but this needs to be revisited for when we start supporting
-	// symlinks plugs in snaps.
+	// stub: not available in no-systemd prototype
 	return nil
 }
 

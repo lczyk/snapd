@@ -192,59 +192,13 @@ func parallelCompile(compiler Compiler, profiles []string) error {
 // This method should be called after changing plug, slots, connections between
 // them or application present in the snap.
 func (b *Backend) Setup(appSet *interfaces.SnapAppSet, opts interfaces.ConfinementOptions, sctx interfaces.SetupContext, repo *interfaces.Repository, tm timings.Measurer) error {
-	snapName := appSet.InstanceName()
-	// Get the snippets that apply to this snap
-	spec, err := repo.SnapSpecification(b.Name(), appSet, opts)
-	if err != nil {
-		return fmt.Errorf("cannot obtain seccomp specification for snap %q: %s", snapName, err)
-	}
-
-	// Get the snippets that apply to this snap
-	content, err := b.deriveContent(spec.(*Specification), opts, appSet)
-	if err != nil {
-		return fmt.Errorf("cannot obtain expected security files for snap %q: %s", snapName, err)
-	}
-
-	dir := dirs.SnapSeccompDir
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return fmt.Errorf("cannot create directory for seccomp profiles %q: %s", dir, err)
-	}
-
-	var globs []string
-	for _, g := range interfaces.SecurityTagGlobs(snapName) {
-		globs = append(globs, fmt.Sprintf("%s.src", g))
-	}
-
-	// There is a delicate interaction between `snap run`, `snap-confine`
-	// and compilation of profiles:
-	// - whenever profiles need to be rebuilt due to system-key change,
-	//   `snap run` detects the system-key mismatch and waits for snapd
-	//   (system key is only updated once all security backends have
-	//   finished their job)
-	// - whenever the binary file does not exist, `snap-confine` will poll
-	//   and wait for SNAP_CONFINE_MAX_PROFILE_WAIT, if the profile does not
-	//   appear in that time, `snap-confine` will fail and die
-	changed, removed, err := osutil.EnsureDirStateGlobs(dir, globs, content)
-	if err != nil {
-		return fmt.Errorf("cannot synchronize security files for snap %q: %s", snapName, err)
-	}
-	for _, c := range removed {
-		err := os.Remove(bpfBinPath(c))
-		if err != nil && !os.IsNotExist(err) {
-			return err
-		}
-	}
-
-	return parallelCompile(b.snapSeccomp, changed)
+	// stub: seccomp profile compilation not available
+	return nil
 }
 
 // Remove removes seccomp profiles of a given snap.
 func (b *Backend) Remove(snapName string) error {
-	globs := interfaces.SecurityTagGlobs(snapName)
-	_, _, err := osutil.EnsureDirStateGlobs(dirs.SnapSeccompDir, globs, nil)
-	if err != nil {
-		return fmt.Errorf("cannot synchronize security files for snap %q: %s", snapName, err)
-	}
+	// stub: seccomp profile removal not available
 	return nil
 }
 

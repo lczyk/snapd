@@ -363,6 +363,9 @@ func restartManager(st *state.State, errMsg string) *RestartManager {
 func Request(st *state.State, t RestartType, rebootInfo *boot.RebootInfo) {
 	rm := restartManager(st, "internal error: cannot request a restart before RestartManager initialization")
 	switch t {
+	case RestartDaemon:
+		// no systemd to restart us -- skip the restart request entirely
+		return
 	case RestartSystem, RestartSystemNow, RestartSystemHaltNow, RestartSystemPoweroffNow:
 		st.Set("system-restart-from-boot-id", rm.bootID)
 	}

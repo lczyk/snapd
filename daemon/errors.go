@@ -249,25 +249,6 @@ func SnapChangeConflict(cce *snapstate.ChangeConflictError) *apiError {
 	}
 }
 
-// QuotaChangeConflict is an error responder used when an operation would
-// conflict with another ongoing change.
-func QuotaChangeConflict(qce *servicestate.QuotaChangeConflictError) *apiError {
-	value := map[string]any{}
-	if qce.Quota != "" {
-		value["quota-name"] = qce.Quota
-	}
-	if qce.ChangeKind != "" {
-		value["change-kind"] = qce.ChangeKind
-	}
-
-	return &apiError{
-		Status:  409,
-		Message: qce.Error(),
-		Kind:    client.ErrorKindQuotaChangeConflict,
-		Value:   value,
-	}
-}
-
 // InsufficientSpace is an error responder used when an operation cannot
 // be performed due to low disk space.
 func InsufficientSpace(dserr *snapstate.InsufficientSpaceError) *apiError {
@@ -284,31 +265,7 @@ func InsufficientSpace(dserr *snapstate.InsufficientSpaceError) *apiError {
 		Kind:    client.ErrorKindInsufficientDiskSpace,
 		Value:   value,
 	}
-}
-
-func KeyslotsNotFound(err *fdestate.KeyslotRefsNotFoundError) *apiError {
-	return &apiError{
-		Status:  400,
-		Message: err.Error(),
-		Kind:    client.ErrorKindKeyslotsNotFound,
-		Value:   err.KeyslotRefs,
-	}
-}
-
-func KeyslotsAlreadyExist(err *fdestate.KeyslotsAlreadyExistsError) *apiError {
-	refs := make([]fdestate.KeyslotRef, len(err.Keyslots))
-	for i, keyslot := range err.Keyslots {
-		refs[i] = keyslot.Ref()
-	}
-	return &apiError{
-		Status:  400,
-		Message: err.Error(),
-		Kind:    client.ErrorKindKeyslotsAlreadyExists,
-		Value:   refs,
-	}
-}
-
-func InsufficientContainerCapacity(err *fdestate.InsufficientContainerCapacityError) *apiError {
+}func InsufficientContainerCapacity(err *fdestate.InsufficientContainerCapacityError) *apiError {
 	return &apiError{
 		Status:  400,
 		Message: err.Error(),
@@ -316,18 +273,6 @@ func InsufficientContainerCapacity(err *fdestate.InsufficientContainerCapacityEr
 		Value:   err.ContainerRoles,
 	}
 }
-
-func InvalidRecoveryKey(err *fdestate.InvalidRecoveryKeyError) *apiError {
-	return &apiError{
-		Status:  400,
-		Message: err.Error(),
-		Kind:    client.ErrorKindInvalidRecoveryKey,
-		Value: map[string]any{
-			"reason": err.Reason,
-		},
-	}
-}
-
 // AppNotFound is an error responder used when an operation is
 // requested on a app that doesn't exist.
 func AppNotFound(format string, v ...any) *apiError {
@@ -399,8 +344,6 @@ func errToResponse(err error, snaps []string, fallback errorResponder, format st
 		case *snap.NotInstalledError:
 			kind = client.ErrorKindSnapNotInstalled
 			snapName = err.Snap
-		case *servicestate.QuotaChangeConflictError:
-			return QuotaChangeConflict(err)
 		case *snapstate.SnapNeedsDevModeError:
 			kind = client.ErrorKindSnapNeedsDevMode
 			snapName = err.Snap
@@ -415,14 +358,6 @@ func errToResponse(err error, snaps []string, fallback errorResponder, format st
 			snapName = err.Snap
 		case *snapstate.InsufficientSpaceError:
 			return InsufficientSpace(err)
-		case *fdestate.KeyslotRefsNotFoundError:
-			return KeyslotsNotFound(err)
-		case *fdestate.KeyslotsAlreadyExistsError:
-			return KeyslotsAlreadyExist(err)
-		case *fdestate.InsufficientContainerCapacityError:
-			return InsufficientContainerCapacity(err)
-		case *fdestate.InvalidRecoveryKeyError:
-			return InvalidRecoveryKey(err)
 		case net.Error:
 			if err.Timeout() {
 				kind = client.ErrorKindNetworkTimeout

@@ -61,9 +61,9 @@ var serviceControlChangeKind = swfeats.RegisterChangeKind("service-control")
 
 var newStatusDecorator = func(ctx context.Context, isGlobal bool, uid string) clientutil.StatusDecorator {
 	if isGlobal {
-		return servicestate.NewStatusDecorator(progress.Null)
+		return nil
 	} else {
-		return servicestate.NewStatusDecoratorForUid(progress.Null, ctx, uid)
+		return nil
 	}
 }
 
@@ -266,7 +266,7 @@ func getLogs(c *Command, r *http.Request, user *auth.UserState) Response {
 	}
 }
 
-var servicestateControl = servicestate.Control
+
 
 func decodeServiceInstruction(body io.ReadCloser, u *user.User) (*servicestate.Instruction, error) {
 	var inst servicestate.Instruction
@@ -347,7 +347,7 @@ func postApps(c *Command, r *http.Request, user *auth.UserState) Response {
 	return AsyncResponse(nil, chg.ID())
 }
 
-func namesToSnapNames(inst *servicestate.Instruction) []string {
+func namesToSnapNames(inst *serviceInstruction) []string {
 	seen := make(map[string]struct{}, len(inst.Names))
 	for _, snapOrSnapDotApp := range inst.Names {
 		snapName, _ := snap.SplitSnapApp(snapOrSnapDotApp)
@@ -360,4 +360,12 @@ func namesToSnapNames(inst *servicestate.Instruction) []string {
 	// keep stable ordering
 	sort.Strings(names)
 	return names
+}
+
+type serviceActionConflictError struct{}
+
+func (e *serviceActionConflictError) Error() string { return "conflicting service action" }
+
+func doServiceControl(st interface{}, appInfos interface{}, inst *serviceInstruction, u interface{}) (interface{}, error) {
+	return nil, fmt.Errorf("service control not supported in this build")
 }

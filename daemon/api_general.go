@@ -102,7 +102,6 @@ var (
 	buildID             = "unknown"
 	systemdVirt         = ""
 	snapdtoolIsReexecd  = snapdtool.IsReexecd
-	fdestateSystemState = fdestate.SystemState
 )
 
 func init() {

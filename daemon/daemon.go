@@ -40,7 +40,6 @@ import (
 	"github.com/snapcore/snapd/boot"
 	"github.com/snapcore/snapd/dirs"
 	"github.com/snapcore/snapd/logger"
-	"github.com/snapcore/snapd/netutil"
 	"github.com/snapcore/snapd/osutil"
 	"github.com/snapcore/snapd/overlord"
 	"github.com/snapcore/snapd/overlord/auth"
@@ -50,13 +49,12 @@ import (
 	"github.com/snapcore/snapd/overlord/state"
 	"github.com/snapcore/snapd/snapdenv"
 	"github.com/snapcore/snapd/store"
-	"github.com/snapcore/snapd/wrappers"
 )
 
 var ErrRestartSocket = fmt.Errorf("daemon stop requested to wait for socket activation")
 var ErrNoFailureRecoveryNeeded = fmt.Errorf("no failure recovery needed")
 
-var systemdSdNotify = systemd.SdNotify
+var systemdSdNotify = func(string) error { return nil }
 
 const (
 	daemonRestartMsg  = "daemon is restarting"
@@ -251,21 +249,20 @@ func logit(handler http.Handler) http.Handler {
 // Init sets up the Daemon's internal workings.
 // Don't call more than once.
 func (d *Daemon) Init() error {
-	listenerMap, err := netutil.ActivationListeners()
+	listener, err := net.Listen("unix", dirs.SnapdSocket)
 	if err != nil {
+		return fmt.Errorf("when trying to listen on %s: %v", dirs.SnapdSocket, err)
+	}
+	d.snapdListener = &ucrednetListener{Listener: listener}
+
+	if err := os.Chmod(dirs.SnapdSocket, 0666); err != nil {
 		return err
 	}
 
-	// The SnapdSocket is required -- without it, die.
-	if listener, err := netutil.GetListener(dirs.SnapdSocket, listenerMap); err == nil {
-		d.snapdListener = &ucrednetListener{Listener: listener}
-	} else {
-		return fmt.Errorf("when trying to listen on %s: %v", dirs.SnapdSocket, err)
-	}
-
-	if listener, err := netutil.GetListener(dirs.SnapSocket, listenerMap); err == nil {
-		// This listener may also be nil if that socket wasn't among
-		// the listeners, so check it before using it.
+	if listener, err := net.Listen("unix", dirs.SnapSocket); err == nil {
+		if err := os.Chmod(dirs.SnapSocket, 0666); err != nil {
+			return err
+		}
 		d.snapListener = &ucrednetListener{Listener: listener}
 	} else {
 		logger.Debugf("cannot get listener for %q: %v", dirs.SnapSocket, err)
@@ -650,9 +647,7 @@ func (d *Daemon) Stop(sigCh chan<- os.Signal) error {
 		// Otherwise we are simply restarted by systemd after exiting. For the former case,
 		// there will be two running instances of snapd for a brief amount of time, so we
 		// must ensure that any global resource is freed before this call.
-		if err := wrappers.RestartSnapd(); err != nil {
-			logger.Noticef("while restarting snapd: %v", err)
-		}
+		logger.Noticef("restart of snapd via wrappers not available without systemd")
 	}
 
 	return nil

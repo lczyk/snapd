@@ -1,4 +1,4 @@
-# no-systemd prototype: snapd in a vanilla docker container
+# no-systemd prototype: snapd in a bare docker container
 
 # stage 1: build snapd binaries
 FROM ubuntu:24.04 AS builder
@@ -11,27 +11,51 @@ RUN go build -o /out/snapd ./cmd/snapd \
  && go build -o /out/snap ./cmd/snap \
  && go build -o /out/snapctl ./cmd/snapctl
 
-# stage 2: seed builder
-FROM ubuntu:24.04 AS seed-builder
-RUN apt-get update && apt-get install -y snapd ca-certificates
-RUN mkdir -p /seed-out/var/lib/snapd/seed \
- && snap known --remote model series=16 brand-id=generic model=generic-classic > /tmp/generic-classic.model \
- && (snap prepare-image --classic --arch amd64 /tmp/generic-classic.model /seed-out/ || true) \
- && touch /seed-out/var/lib/snapd/seed/.seeded 2>/dev/null || (mkdir -p /seed-out/var/lib/snapd/seed && touch /seed-out/var/lib/snapd/seed/.empty)
+# stage 2: file collector
+FROM ubuntu:24.04 AS collector
+RUN apt-get update && apt-get install -y squashfs-tools ca-certificates tini dash
+RUN mkdir -p /out/bin /out/lib /out/etc/ssl /out/usr/local/bin /out/usr/bin
 
-# stage 3: runtime
-FROM ubuntu:24.04
-RUN apt-get update && apt-get install -y ca-certificates tini squashfs-tools && rm -rf /var/lib/apt/lists/*
-COPY --from=builder /out/snapd /usr/local/bin/
-COPY --from=builder /out/snap /usr/bin/
-COPY --from=builder /out/snapctl /usr/local/bin/
-RUN ln -sf /usr/bin/snap /usr/local/bin/snap
-COPY --from=seed-builder /seed-out/var/lib/snapd/seed /var/lib/snapd/seed/
+# snapd binaries (static)
+COPY --from=builder /out/snapd /out/usr/local/bin/
+COPY --from=builder /out/snap  /out/usr/bin/
+COPY --from=builder /out/snapctl /out/usr/local/bin/
+RUN ln -s /usr/bin/snap /out/usr/local/bin/snap
 
-COPY entrypoint.sh /usr/local/bin/
-COPY demo.sh /usr/local/bin/
-RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/demo.sh
+# shell + basic utils (copy binary + shared libs)
+RUN cp /bin/dash /bin/mkdir /bin/sleep /bin/cat /bin/ls /bin/test /bin/rm /bin/tar /bin/gzip /out/bin/ \
+ && ln -s dash /out/bin/sh
 
+# unsquashfs + tini
+RUN cp /usr/bin/unsquashfs /usr/bin/tini /out/usr/bin/
+
+# shared libraries - discover paths dynamically (works on arm64 and amd64)
+RUN linker=$(ldd /bin/sh | grep ld-linux | awk '{print $1}') \
+ && libdir=$(ldd /bin/sh | grep '=>' | head -1 | awk '{print $3}' | xargs dirname) \
+ && echo "linker: $linker, libdir: $libdir" \
+ && mkdir -p "/out$libdir" \
+ && cp -a "$libdir"/*.so* "/out$libdir/" \
+ && mkdir -p /out/lib \
+ && cp "$linker" /out/lib/
+
+# CA certificates (for HTTPS to store)
+RUN cp -r /etc/ssl/certs /out/etc/ssl/
+
+# /etc/passwd (so we have a username)
+RUN echo 'root:x:0:0:root:/root:/bin/sh' > /out/etc/passwd \
+ && echo 'root:x:0:' > /out/etc/group \
+ && echo 'root:*:20000:0:99999:7:::' > /out/etc/shadow \
+ && echo 'hosts: files dns' > /out/etc/nsswitch.conf \
+ && mkdir -p /out/tmp /out/root /out/run
+
+# seed
+COPY entrypoint.sh /out/usr/local/bin/
+COPY demo.sh /out/usr/local/bin/
+RUN chmod +x /out/usr/local/bin/entrypoint.sh /out/usr/local/bin/demo.sh
+
+# stage 3: bare runtime
+FROM scratch
+COPY --from=collector /out/ /
 ENV PATH=/snap/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/entrypoint.sh"]
-CMD ["bash"]
+CMD ["/bin/sh"]

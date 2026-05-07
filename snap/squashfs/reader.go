@@ -122,6 +122,15 @@ func (r *nativeReader) readMetadataBlocks(tableStart, blockStart uint64, skipByt
 	skipped := 0
 
 	for need > 0 {
+		// stop as soon as we have what was asked for. without this
+		// the loop keeps reading metadata blocks past the end of the
+		// table being walked and into whatever comes after (dir-,
+		// frag-, export-table). those decode as bogus block headers
+		// and the next ReadAt walks off the end of the file -- the
+		// "EOF reading metadata at <near-eof-offset>" failure mode.
+		if len(buf) >= totalBytes {
+			break
+		}
 		pos := tableStart + offset
 		header := readU16At(r.ra, pos)
 		dataSize := int(header & 0x7FFF)
@@ -129,7 +138,13 @@ func (r *nativeReader) readMetadataBlocks(tableStart, blockStart uint64, skipByt
 
 		data := make([]byte, dataSize)
 		if _, err := r.ra.ReadAt(data, int64(pos)+2); err != nil {
-			if len(buf) >= totalBytes {
+			// EOF here means the chain has run out of valid metadata
+			// blocks (e.g. we walked past the end of the table being
+			// read). return what we have and let the caller decide
+			// whether it's enough -- readInode in particular asks for
+			// 256 bytes initially as a header probe and is happy with
+			// fewer if there genuinely aren't more.
+			if len(buf) >= 16 {
 				break
 			}
 			return nil, fmt.Errorf("read metadata at %d: %w", pos, err)

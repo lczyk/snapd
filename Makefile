@@ -43,20 +43,41 @@ ROCK_FILE    := rock/$(ROCK_NAME)_$(ROCK_VERSION)_$(ROCK_ARCH).rock
 .PHONY: rock-stage
 rock-stage: build  ## Stage pre-built bins + scripts under rock/_stage/
 	mkdir -p rock/_stage
-	cp ./bin/snapd ./bin/snap ./bin/snapctl entrypoint.sh demo.sh rock/_stage/
+	cp ./bin/snapd ./bin/snap ./bin/snapctl demo.sh rock/snapd-start.sh rock/_stage/
+	mv rock/_stage/snapd-start.sh rock/_stage/snapd-start
+	chmod +x rock/_stage/snapd-start rock/_stage/demo.sh
 
 .PHONY: rock
 rock: rock-stage  ## Build the snapd rock (OCI archive via rockcraft)
+	# rockcraft caches part build output and doesn't track _stage/ sources,
+	# so clean the binaries part to force a re-copy from the staged files.
+	cd rock && rockcraft clean binaries >/dev/null 2>&1 || true
 	cd rock && rockcraft pack
 
-# podman accepts oci-archive: image refs directly -- no daemon, no load step.
+ROCK_CONTAINER := snapd-rock
+
+# rock workflow: pebble + the snapd service start when the container is
+# launched (`podman run -d`), interactive work happens via `podman exec`.
+# same model as fluentd-rock. ROCK_CONTAINER names the container so we
+# can reliably exec into / clean up.
+.PHONY: rock-up
+rock-up: rock  ## Start the rock container in the background
+	-podman rm -f $(ROCK_CONTAINER) >/dev/null 2>&1
+	podman run -d --name $(ROCK_CONTAINER) oci-archive:$(ROCK_FILE)
+
+.PHONY: rock-down
+rock-down:  ## Stop and remove the rock container
+	-podman rm -f $(ROCK_CONTAINER) >/dev/null 2>&1
+
 .PHONY: rock-demo
-rock-demo: rock  ## Run the canned demo from the rock (via pebble)
-	podman run --rm oci-archive:$(ROCK_FILE) exec /usr/local/bin/entrypoint.sh demo
+rock-demo: rock-up  ## Run the canned demo against the running rock
+	podman exec $(ROCK_CONTAINER) /usr/local/bin/demo.sh; \
+		rc=$$?; podman rm -f $(ROCK_CONTAINER) >/dev/null 2>&1; exit $$rc
 
 .PHONY: rock-shell
-rock-shell: rock  ## Drop into an interactive shell in the rock
-	podman run --rm -it --entrypoint /bin/sh oci-archive:$(ROCK_FILE)
+rock-shell: rock-up  ## Drop into an interactive shell in the rock
+	-podman exec -it $(ROCK_CONTAINER) /usr/bin/bash
+	podman rm -f $(ROCK_CONTAINER) >/dev/null 2>&1
 
 .PHONY: rock-clean
 rock-clean:  ## Remove built rock artefacts

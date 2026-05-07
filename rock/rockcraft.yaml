@@ -1,21 +1,25 @@
 # no-systemd prototype: snapd in a rock, supervised by pebble.
-# rocks ship pebble as pid 1, so it plays the role tini did in the docker
-# image -- plus it manages snapd as a long-running service.
-# squashfs extraction is built into snapd (native go reader), so no
-# unsquashfs is needed at runtime.
+# usage model (same as fluentd-rock):
+#   podman run -d --name snapd-rock oci-archive:.../snapd-rock_*.rock
+#   podman exec -it snapd-rock snap install <foo>
+#   podman stop snapd-rock && podman rm snapd-rock
+# pebble (pid 1) brings snapd up via the service definition below; the
+# container stays alive until podman stops it. squashfs extraction is
+# built into snapd (native go reader), so no unsquashfs is needed.
 #
-# binaries and scripts are pre-staged into ./_stage/ by the top-level
-# Makefile (`make rock` runs `make build` first, then copies bins +
-# entrypoint.sh + demo.sh in). this avoids `source: ..` -- which would
-# escape the project dir and dump the build vm's /root into the rock.
+# binaries are pre-staged into ./_stage/ by the top-level Makefile
+# (`make rock` runs `make build` first, then copies them in). this
+# avoids `source: ..` -- which would escape the project dir and dump
+# the build vm's /root into the rock.
 
 name: snapd-rock
 summary: snapd in a rock (no systemd)
 description: |
-  snapd running under pebble in a minimal rock. mirrors the bare docker
-  image at the repo root: same binaries (snapd, snap, snapctl), same
-  busybox + gnu tar runtime, same demo flow. pebble replaces tini as
-  pid 1 and supervises snapd.
+  snapd running in a minimal rock. mirrors the bare docker image at
+  the repo root: same binaries (snapd, snap, snapctl), same one-shot
+  demo flow. userland is built from chisel slices (bash, coreutils,
+  tar, gzip, grep, gawk, wget, ca-certs) instead of busybox. pebble
+  is the OCI entrypoint / pid 1, replacing tini.
 license: GPL-3.0
 version: '0.1'
 
@@ -29,12 +33,15 @@ platforms:
   amd64:
   arm64:
 
-# pebble service -- snapd starts on boot, restarts on failure.
+# snapd as a pebble service. /run is tmpfs and gets blanked on each
+# container start, so the runtime dirs need creating at boot, not at
+# build time. snapd-start.sh (staged from the host) handles that and
+# then execs snapd.
 services:
   snapd:
     override: replace
     summary: snapd daemon
-    command: /usr/local/bin/snapd
+    command: /usr/local/bin/snapd-start
     startup: enabled
     on-failure: restart
     environment:
@@ -51,47 +58,34 @@ parts:
       install -Dm755 $CRAFT_PROJECT_DIR/_stage/snapd    $CRAFT_PART_INSTALL/usr/local/bin/snapd
       install -Dm755 $CRAFT_PROJECT_DIR/_stage/snap     $CRAFT_PART_INSTALL/usr/bin/snap
       install -Dm755 $CRAFT_PROJECT_DIR/_stage/snapctl  $CRAFT_PART_INSTALL/usr/local/bin/snapctl
-      install -Dm755 $CRAFT_PROJECT_DIR/_stage/entrypoint.sh $CRAFT_PART_INSTALL/usr/local/bin/entrypoint.sh
+      install -Dm755 $CRAFT_PROJECT_DIR/_stage/snapd-start $CRAFT_PART_INSTALL/usr/local/bin/snapd-start
       install -Dm755 $CRAFT_PROJECT_DIR/_stage/demo.sh  $CRAFT_PART_INSTALL/usr/local/bin/demo.sh
       ln -sf /usr/bin/snap $CRAFT_PART_INSTALL/usr/local/bin/snap
 
-  # busybox + gnu tar + ca-certs -- the userland the dockerfile cherry-picks
-  # from an ubuntu collector stage. stage-packages gives us the same set
-  # via the base's package archive, with libs resolved automatically.
+  # userland via chisel slices -- the rockcraft-native way to package
+  # only the bits we need from each ubuntu deb, with merged-usr layout
+  # and dependencies resolved automatically. `bash_bins` and friends
+  # land binaries at standard paths (/usr/bin/...) with the right
+  # /lib symlinks already in place, so no manual loader/multiarch
+  # gymnastics needed (unlike busybox-static on bare base).
+  # see https://documentation.ubuntu.com/rockcraft/stable/explanation/chisel/
   runtime:
     plugin: nil
     stage-packages:
-      - busybox-static
-      - tar
-      - ca-certificates
+      - bash_bins                # bash + /bin/sh
+      - coreutils_bins           # cat, ls, mkdir, rm, sleep, echo, printf, test, ...
+      - tar_bins                 # tar
+      - gzip_bins                # gzip
+      - grep_bins                # grep
+      - gawk_bins                # awk
+      - wget_bins                # wget (for snapd's HTTP fetches if needed)
+      - ca-certificates_data     # CA bundle for HTTPS to the snap store
     override-build: |
       craftctl default
-      mkdir -p $CRAFT_PART_INSTALL/bin $CRAFT_PART_INSTALL/lib $CRAFT_PART_INSTALL/lib64
-      # busybox-static lands at /usr/bin/busybox on ubuntu. point the
-      # applet symlinks at the absolute path so #!/bin/sh resolves
-      # correctly (relative `ln -sf busybox` would look for /bin/busybox
-      # and silently break the shebang).
-      ln -sf /usr/bin/busybox $CRAFT_PART_INSTALL/bin/busybox
-      for cmd in sh mkdir sleep cat ls test rm gzip wget echo printf grep awk; do
-        ln -sf /usr/bin/busybox $CRAFT_PART_INSTALL/bin/$cmd
-      done
-      # bare base puts everything under /usr/lib, but ubuntu binaries are
-      # built with ELF interpreters like /lib/ld-linux-aarch64.so.1 or
-      # /lib64/ld-linux-x86-64.so.2. expose the loader at both paths so
-      # dynamically-linked tools (tar, openssl) can actually exec.
-      for ld in $(find $CRAFT_PART_INSTALL/usr/lib -maxdepth 3 -name 'ld-linux-*.so.*' 2>/dev/null); do
-        base=$(basename "$ld")
-        rel=${ld#$CRAFT_PART_INSTALL}
-        ln -sf "$rel" "$CRAFT_PART_INSTALL/lib/$base"
-        ln -sf "$rel" "$CRAFT_PART_INSTALL/lib64/$base"
-      done
-      # multiarch lib dir at /lib/<triplet> so DT_NEEDED entries resolve
-      # without LD_LIBRARY_PATH gymnastics.
-      for d in $CRAFT_PART_INSTALL/usr/lib/*-linux-gnu; do
-        [ -d "$d" ] || continue
-        base=$(basename "$d")
-        ln -sf "/usr/lib/$base" "$CRAFT_PART_INSTALL/lib/$base"
-      done
+      # bash_bins lands /usr/bin/bash; ensure /bin/sh resolves to it
+      # so #!/bin/sh shebangs work without depending on dash being there.
+      mkdir -p $CRAFT_PART_INSTALL/bin
+      [ -e $CRAFT_PART_INSTALL/bin/sh ] || ln -sf /usr/bin/bash $CRAFT_PART_INSTALL/bin/sh
 
   # writable dirs + minimal /etc that snapd expects on first boot.
   rootfs:

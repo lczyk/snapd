@@ -8,6 +8,15 @@ fi
 
 set -ex
 export PATH=/snap/bin:$PATH
+
+# wait for snapd to be ready -- in the rock, pebble starts snapd as a
+# service and `podman exec` may land before the socket appears.
+i=0
+while [ $i -lt 30 ] && [ ! -S /run/snapd.socket ]; do
+    sleep 0.5
+    i=$((i + 1))
+done
+
 snap install hello-world
 hello-world
 snap remove hello-world

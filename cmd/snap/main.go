@@ -43,6 +43,9 @@ usage:
                           refresh every installed snap. old
                           revisions are pruned automatically.
   snap list               show what's installed under /snap/
+  snap info <name>...     print snap metadata; falls back to the
+                          store if not installed locally
+  snap find <query>...    search the store
 
 every snap is treated as classic. the binary is meant to run inside
 a container; nothing else (apparmor, seccomp, mount namespaces, ...)
@@ -81,6 +84,10 @@ func run(invokedAs string, args []string) error {
 		return cmdRefresh(args[1:])
 	case "list":
 		return cmdList(args[1:])
+	case "info":
+		return cmdInfo(args[1:])
+	case "find":
+		return cmdFind(args[1:])
 	case "-h", "--help", "help":
 		fmt.Print(usage)
 		return nil

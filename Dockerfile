@@ -13,7 +13,7 @@ RUN CGO_ENABLED=0 go build -o /out/snapd ./cmd/snapd \
  && CGO_ENABLED=0 go build -o /out/snapctl ./cmd/snapctl
 
 # stage 2: file collector
-FROM ubuntu:24.04 AS collector
+FROM ubuntu:26.04 AS collector
 RUN apt-get update && apt-get install -y ca-certificates busybox tini
 RUN mkdir -p /out/bin /out/etc/ssl /out/usr/local/bin /out/usr/bin
 
@@ -32,14 +32,17 @@ RUN cp /bin/busybox /out/bin/ \
 # tini (init process for signal handling)
 RUN cp /usr/bin/tini /out/usr/bin/
 
-# shared libraries -- only busybox + tini need these (libc + ld-linux)
+# shared libraries -- copy linker and libc for dynamically-linked tools (busybox, tini)
+# also set up the multiarch path so that snaps with dynamic binaries can run
 RUN linker=$(ldd /bin/busybox | grep ld-linux | awk '{print $1}') \
  && libdir=$(dirname "$linker") \
- && mkdir -p "/out$libdir" \
+ && mkdir -p "/out$libdir" "/out/lib" \
+ && cp "$linker" "/out$libdir/" \
  && cp "$linker" /out/lib/ \
  && for bin in /bin/busybox /usr/bin/tini; do \
       ldd "$bin" | grep '=>' | awk '{print $3}' | sort -u | while read -r lib; do \
         [ -f "$lib" ] && cp -n "$lib" "/out$libdir/"; \
+        [ -f "$lib" ] && cp -n "$lib" /out/lib/; \
       done; \
     done
 

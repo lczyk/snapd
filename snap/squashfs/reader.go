@@ -646,13 +646,21 @@ func (r *nativeReader) walkDirInode(ino *inode, basePath string, walkFn filepath
 
 // --- extraction ----------------------------------------------------------------
 
+// fileToExtract holds the info needed to extract a single file.
+type fileToExtract struct {
+	path     string
+	destPath string
+	ino      *inode
+	mode     os.FileMode
+}
+
 func (r *nativeReader) extractAll(dest string) error {
-	return r.walkDir(r.sb.RootInodeRef, ".", func(path string, info os.FileInfo, err error) error {
+	// Phase 1: walk the tree, create dirs/symlinks, collect files
+	var files []fileToExtract
+	err := r.walkDir(r.sb.RootInodeRef, ".", func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
-
-		// info.Sys holds the inode ref for extraction
 		destPath := filepath.Join(dest, path)
 		ino := info.Sys().(*inode)
 
@@ -666,20 +674,73 @@ func (r *nativeReader) extractAll(dest string) error {
 				return err
 			}
 		case info.Mode().IsRegular():
-			f, err := os.OpenFile(destPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, info.Mode())
-			if err != nil {
-				return err
-			}
-			if err := r.writeFileData(ino, f); err != nil {
-				f.Close()
-				return fmt.Errorf("extract %s: %w", path, err)
-			}
-			if err := f.Close(); err != nil {
-				return err
-			}
+			files = append(files, fileToExtract{path, destPath, ino, info.Mode()})
 		}
 		return nil
 	})
+	if err != nil {
+		return err
+	}
+
+	// Phase 2: extract files in parallel
+	return r.extractFiles(files)
+}
+
+// extractFiles extracts files using a worker pool for parallel decompression.
+func (r *nativeReader) extractFiles(files []fileToExtract) error {
+	if len(files) == 0 {
+		return nil
+	}
+
+	workers := 4
+	if len(files) < workers {
+		workers = len(files)
+	}
+
+	type workResult struct {
+		index int
+		err   error
+	}
+
+	jobs := make(chan int, len(files))
+	results := make(chan workResult, len(files))
+
+	for w := 0; w < workers; w++ {
+		go func() {
+			for idx := range jobs {
+				f := &files[idx]
+				out, err := os.OpenFile(f.destPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, f.mode)
+				if err != nil {
+					results <- workResult{idx, err}
+					continue
+				}
+				if err := r.writeFileData(f.ino, out); err != nil {
+					out.Close()
+					results <- workResult{idx, fmt.Errorf("extract %s: %w", f.path, err)}
+					continue
+				}
+				if err := out.Close(); err != nil {
+					results <- workResult{idx, err}
+					continue
+				}
+				results <- workResult{idx, nil}
+			}
+		}()
+	}
+
+	for i := range files {
+		jobs <- i
+	}
+	close(jobs)
+
+	var firstErr error
+	for range files {
+		res := <-results
+		if res.err != nil && firstErr == nil {
+			firstErr = res.err
+		}
+	}
+	return firstErr
 }
 
 // extractMatching extracts files matching a glob pattern relative to root.

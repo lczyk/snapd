@@ -40,13 +40,22 @@ is set up.
 `
 
 func main() {
-	if err := run(os.Args[1:]); err != nil {
+	if err := run(os.Args[0], os.Args[1:]); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %s\n", err)
 		os.Exit(1)
 	}
 }
 
-func run(args []string) error {
+func run(invokedAs string, args []string) error {
+	// shim mode: when invoked via a /snap/bin/<x> symlink, argv[0]
+	// is the link path. translate to `run <x> <args...>` so the
+	// user sees their installed snap, not the snap multitool.
+	// the install path creates these symlinks pointing back at
+	// this binary -- see cmd/snap/install.go::wireBins.
+	if name := shimName(invokedAs); name != "" {
+		return cmdRun(append([]string{name}, args...))
+	}
+
 	if len(args) == 0 {
 		fmt.Print(usage)
 		return nil
@@ -62,4 +71,29 @@ func run(args []string) error {
 	default:
 		return fmt.Errorf("unknown subcommand %q (try `snap help`)", args[0])
 	}
+}
+
+// shimName returns the snap-name (or snap.app) component when the
+// binary was invoked via a /snap/bin/<x> symlink, "" otherwise.
+// matching is by directory rather than basename so renaming the
+// real binary to `snap` doesn't get treated as a shim for itself.
+func shimName(invokedAs string) string {
+	dir, base := filepathSplit(invokedAs)
+	if dir != "/snap/bin" {
+		return ""
+	}
+	return base
+}
+
+// filepathSplit avoids importing path/filepath here just for a
+// trivial split. argv[0] under /snap/bin is always /snap/bin/<x>
+// (the symlinks the install path creates), so a manual rsplit on
+// '/' is enough.
+func filepathSplit(p string) (dir, base string) {
+	for i := len(p) - 1; i >= 0; i-- {
+		if p[i] == '/' {
+			return p[:i], p[i+1:]
+		}
+	}
+	return "", p
 }

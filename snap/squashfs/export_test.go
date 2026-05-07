@@ -29,8 +29,7 @@ import (
 )
 
 var (
-	FromRaw                   = fromRaw
-	NewUnsquashfsStderrWriter = newUnsquashfsStderrWriter
+	FromRaw = fromRaw
 
 	SetupPipes                      = setupPipesImpl
 	CompIdToMksquashfsArgs          = compIdToMksquashfsArgs

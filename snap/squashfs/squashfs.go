@@ -20,16 +20,13 @@
 package squashfs
 
 import (
-	"bufio"
 	"bytes"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
-	"path"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"syscall"
 	"time"
@@ -38,9 +35,7 @@ import (
 	"github.com/snapcore/snapd/logger"
 	"github.com/snapcore/snapd/osutil"
 	"github.com/snapcore/snapd/snap"
-	"github.com/snapcore/snapd/snap/internal"
 	"github.com/snapcore/snapd/snapdtool"
-	"github.com/snapcore/snapd/strutil"
 )
 
 const (
@@ -54,14 +49,6 @@ var (
 
 	// for testing
 	isRootWritableOverlay = osutil.IsRootWritableOverlay
-
-	// Limit unsquashfs memory usage
-	// On low-memory devices unsquashfs can otherwise fail with "Requested memory size too large".
-	// TODO: leverage mem-percent parameter in latest version of unsquashfs
-	baseUnsquashfsOptions = []string{
-		"-data-queue", "16", // 16MB
-		"-frag-queue", "16", // 16MB
-	}
 )
 
 func FileHasSquashfsHeader(path string) bool {
@@ -244,116 +231,32 @@ func (s *Snap) Install(targetPath, mountDir string, opts *snap.InstallOptions) (
 	return false, tryCopyWithIntegrityData(s.path, targetPath, opts)
 }
 
-// unsquashfsStderrWriter is a helper that captures errors from
-// unsquashfs on stderr. Because unsquashfs will potentially
-// (e.g. on out-of-diskspace) report an error on every single
-// file we limit the reported error lines to 4.
+// Unpack unpacks files from the snap to the given directory.
+// src is a path or glob pattern (e.g. "*" for everything).
 //
-// unsquashfs does not exit with an exit code for write errors
-// (e.g. no space left on device). There is an upstream PR
-// to fix this https://github.com/plougher/squashfs-tools/pull/46
-//
-// However in the meantime we can detect errors by looking
-// on stderr for "failed" which is pretty consistently used in
-// the unsquashfs.c source in case of errors.
-type unsquashfsStderrWriter struct {
-	strutil.MatchCounter
-}
-
-var unsquashfsStderrRegexp = regexp.MustCompile(`(?m).*\b[Ff]ailed\b.*`)
-
-func newUnsquashfsStderrWriter() *unsquashfsStderrWriter {
-	return &unsquashfsStderrWriter{strutil.MatchCounter{
-		Regexp: unsquashfsStderrRegexp,
-		N:      4, // note Err below uses this value
-	}}
-}
-
-func (u *unsquashfsStderrWriter) Err() error {
-	// here we use that our N is 4.
-	errors, count := u.Matches()
-	switch count {
-	case 0:
-		return nil
-	case 1:
-		return fmt.Errorf("failed: %q", errors[0])
-	case 2, 3, 4:
-		return fmt.Errorf("failed: %s, and %q", strutil.Quoted(errors[:len(errors)-1]), errors[len(errors)-1])
-	default:
-		// count > len(matches)
-		extra := count - len(errors)
-		return fmt.Errorf("failed: %s, and %d more", strutil.Quoted(errors), extra)
-	}
-}
-
-// Helper to call unsquashfs, appending the default option to limit memory consumption
-func unsquashfsCmd(extraArgs ...string) *exec.Cmd {
-	args := append(baseUnsquashfsOptions, extraArgs...)
-	return exec.Command("unsquashfs", args...)
-}
-
-// Unpack unpacks the snap to the given directory.
-//
-// Extended attributes are not preserved. This affects capabilities granted to specific executables.
+// Extended attributes are not preserved.
 func (s *Snap) Unpack(src, dstDir string) error {
-	usw := newUnsquashfsStderrWriter()
+	r, closer, err := newNativeReader(s.path)
+	if err != nil {
+		return fmt.Errorf("cannot open snap %q: %v", s.path, err)
+	}
+	defer closer()
 
-	var output bytes.Buffer
-	extraArgs := []string{
-		"-no-xattrs",
-		"-no-progress",
-		"-force",
-		"-dest", dstDir,
-		s.path,
-		src,
+	if src == "*" || src == "." {
+		return r.extractAll(dstDir)
 	}
-	cmd := unsquashfsCmd(extraArgs...)
-	cmd.Stderr = io.MultiWriter(&output, usw)
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("cannot extract %q to %q: %v", src, dstDir, osutil.OutputErr(output.Bytes(), err))
-	}
-	// older versions of unsquashfs do not report errors via exit code,
-	// so we need this extra check.
-	if usw.Err() != nil {
-		return fmt.Errorf("cannot extract %q to %q: %v", src, dstDir, usw.Err())
-	}
-
-	return nil
+	return r.extractMatching(src, dstDir)
 }
 
-// Size returns the size of a squashfs snap.
+// Size returns the size of the backing file.
 func (s *Snap) Size() (size int64, err error) {
 	st, err := os.Stat(s.path)
 	if err != nil {
 		return 0, err
 	}
-
 	return st.Size(), nil
 }
 
-func (s *Snap) withUnpackedFile(filePath string, f func(p string) error) error {
-	tmpdir, err := os.MkdirTemp("", "read-file")
-	if err != nil {
-		return err
-	}
-	defer os.RemoveAll(tmpdir)
-
-	unpackDir := filepath.Join(tmpdir, "unpack")
-	extraArgs := []string{
-		"-no-xattrs",
-		"-no-progress",
-		"-dest", unpackDir,
-		s.path,
-		filePath,
-	}
-
-	// TODO: use sqfscat
-	if output, err := unsquashfsCmd(extraArgs...).CombinedOutput(); err != nil {
-		return fmt.Errorf("cannot run unsquashfs: %v", osutil.OutputErr(output, err))
-	}
-
-	return f(filepath.Join(unpackDir, filePath))
-}
 
 // RandomAccessFile returns an implementation to read at any given
 // location for a single file inside the squashfs snap plus
@@ -363,209 +266,158 @@ func (s *Snap) RandomAccessFile(filePath string) (interface {
 	io.Closer
 	Size() int64
 }, error) {
-	var f *os.File
-	err := s.withUnpackedFile(filePath, func(p string) (err error) {
-		f, err = os.Open(p)
-		return
-	})
+	r, closer, err := newNativeReader(s.path)
 	if err != nil {
 		return nil, err
 	}
-	return internal.NewSizedFile(f)
+
+	ino, err := r.resolvePath(filePath)
+	if err != nil {
+		closer()
+		return nil, err
+	}
+	if !ino.IsRegular() {
+		closer()
+		return nil, fmt.Errorf("%q is not a regular file", filePath)
+	}
+
+	data, err := r.readFileData(ino)
+	closer()
+	if err != nil {
+		return nil, err
+	}
+
+	return &byteSliceFile{data: data}, nil
 }
+
+// byteSliceFile implements io.ReaderAt, io.Closer, and Size() from a byte slice.
+type byteSliceFile struct {
+	data []byte
+}
+
+func (b *byteSliceFile) ReadAt(p []byte, off int64) (int, error) {
+	if off >= int64(len(b.data)) {
+		return 0, io.EOF
+	}
+	n := copy(p, b.data[off:])
+	if n < len(p) {
+		return n, io.EOF
+	}
+	return n, nil
+}
+
+func (b *byteSliceFile) Close() error        { return nil }
+func (b *byteSliceFile) Size() int64          { return int64(len(b.data)) }
 
 // ReadFile returns the content of a single file inside a squashfs snap.
 func (s *Snap) ReadFile(filePath string) (content []byte, err error) {
-	err = s.withUnpackedFile(filePath, func(p string) (err error) {
-		content, err = os.ReadFile(p)
-		return
-	})
+	r, closer, err := newNativeReader(s.path)
 	if err != nil {
 		return nil, err
 	}
-	return content, nil
+	defer closer()
+
+	ino, err := r.resolvePath(filePath)
+	if err != nil {
+		return nil, err
+	}
+	return r.readFileData(ino)
 }
 
+// ReadLink returns the target of a symlink inside a squashfs snap.
 func (s *Snap) ReadLink(filePath string) (string, error) {
-	// XXX: This could be optimized by reading a cached version of
-	// unsquashfs raw output where the symlink's target is available.
-	// Check -> func fromRaw(raw []byte) (*stat, error)
-	var target string
-	err := s.withUnpackedFile(filePath, func(p string) (err error) {
-		target, err = os.Readlink(p)
-		return err
-	})
+	r, closer, err := newNativeReader(s.path)
 	if err != nil {
 		return "", err
 	}
-	return target, nil
+	defer closer()
+
+	ino, err := r.resolvePath(filePath)
+	if err != nil {
+		return "", err
+	}
+	if !ino.IsSymlink() {
+		return "", fmt.Errorf("%q is not a symlink", filePath)
+	}
+	return ino.SymTarget, nil
 }
 
+// Lstat returns file info for a single path inside the snap.
 func (s *Snap) Lstat(filePath string) (os.FileInfo, error) {
-	var fileInfo os.FileInfo
-
-	err := s.Walk(filePath, func(path string, info os.FileInfo, err error) error {
-		if filePath == path {
-			fileInfo = info
-		}
-		return err
-	})
+	r, closer, err := newNativeReader(s.path)
 	if err != nil {
 		return nil, err
 	}
+	defer closer()
 
-	if fileInfo == nil {
+	ino, err := r.resolvePath(filePath)
+	if err != nil {
 		return nil, os.ErrNotExist
 	}
-
-	return fileInfo, nil
+	return inodeToFileInfo(filepath.Base(filePath), ino), nil
 }
-
-// skipper is used to track directories that should be skipped
-//
-// Given sk := make(skipper), if you sk.Add("foo/bar"), then
-// sk.Has("foo/bar") is true, but also sk.Has("foo/bar/baz")
-//
-// It could also be a map[string]bool, but because it's only supposed
-// to be checked through its Has method as above, the small added
-// complexity of it being a map[string]struct{} lose to the associated
-// space savings.
-type skipper map[string]struct{}
-
-func (sk skipper) Add(path string) {
-	sk[filepath.Clean(path)] = struct{}{}
-}
-
-func (sk skipper) Has(path string) bool {
-	for p := filepath.Clean(path); p != "." && p != "/"; p = filepath.Dir(p) {
-		if _, ok := sk[p]; ok {
-			return true
-		}
-	}
-
-	return false
-}
-
-// pre-4.5 unsquashfs writes a funny header like:
-//
-//	"Parallel unsquashfs: Using 1 processor"
-//	"1 inodes (1 blocks) to write"
-//	""   <-- empty line
-var maybeHeaderRegex = regexp.MustCompile(`^(Parallel unsquashfs: Using .* processor.*|[0-9]+ inodes .* to write)$`)
 
 // Walk (part of snap.Container) is like filepath.Walk, without the ordering guarantee.
 func (s *Snap) Walk(relative string, walkFn filepath.WalkFunc) error {
-	relative = filepath.Clean(relative)
-	if relative == "" || relative == "/" {
-		relative = "."
-	} else if relative[0] == '/' {
-		// I said relative, darn it :-)
-		relative = relative[1:]
-	}
-
-	extraArgs := []string{
-		"-no-progress",
-		"-dest", ".",
-		"-lls",
-		s.path,
-	}
-	if relative != "." {
-		extraArgs = append(extraArgs, relative)
-	}
-
-	var cmd *exec.Cmd
-	cmd = unsquashfsCmd(extraArgs...)
-	cmd.Env = []string{"TZ=UTC"}
-	stdout, err := cmd.StdoutPipe()
+	r, closer, err := newNativeReader(s.path)
 	if err != nil {
 		return walkFn(relative, nil, err)
 	}
-	if err := cmd.Start(); err != nil {
-		return walkFn(relative, nil, err)
-	}
-	defer cmd.Process.Kill()
+	defer closer()
 
-	scanner := bufio.NewScanner(stdout)
-	skipper := make(skipper)
-	seenHeader := false
-	for scanner.Scan() {
-		raw := scanner.Bytes()
-		if !seenHeader {
-			// try to match the header written by older (pre-4.5)
-			// squashfs tools
-			if len(scanner.Bytes()) == 0 ||
-				maybeHeaderRegex.Match(raw) {
-				continue
-			} else {
-				seenHeader = true
-			}
-		}
-		st, err := fromRaw(raw)
+	relative = filepath.Clean(relative)
+	if relative == "" || relative == "/" || relative == "." {
+		ino, err := r.readInode(r.sb.RootInodeRef)
 		if err != nil {
-			err = walkFn(relative, nil, err)
-			if err != nil {
-				return err
-			}
-		} else {
-			path := filepath.Join(".", st.Path())
-			if skipper.Has(path) {
-				continue
-			}
-			// skip if path is not under given relative path
-			if relative != "." && !strings.HasPrefix(path, relative) {
-				continue
-			}
-			err = walkFn(path, st, nil)
-			if err != nil {
-				if err == filepath.SkipDir && st.IsDir() {
-					skipper.Add(path)
-				} else {
-					return err
-				}
-			}
+			return walkFn(".", nil, err)
 		}
+		st := inodeToFileInfo(".", ino)
+		if err := walkFn(".", st, nil); err != nil {
+			return err
+		}
+		return r.walkDir(r.sb.RootInodeRef, ".", walkFn)
+	}
+	if relative[0] == '/' {
+		relative = relative[1:]
 	}
 
-	if err := scanner.Err(); err != nil {
-		return walkFn(relative, nil, err)
+	ino, err := r.resolvePath(relative)
+	if err != nil {
+		return walkFn(relative, nil, os.ErrNotExist)
+	}
+	if !ino.IsDir() {
+		return walkFn(relative, nil, fmt.Errorf("not a directory"))
 	}
 
-	if err := cmd.Wait(); err != nil {
-		return walkFn(relative, nil, err)
-	}
-	return nil
+	return r.walkDirInode(ino, relative, walkFn, 0)
 }
 
 // ListDir returns the content of a single directory inside a squashfs snap.
 func (s *Snap) ListDir(dirPath string) ([]string, error) {
-	args := append(
-		baseUnsquashfsOptions,
-		"-no-progress",
-		"-dest", "_",
-		"-ls",
-		s.path,
-		dirPath,
-	)
-	output, stderr, err := osutil.RunSplitOutput("unsquashfs", args...)
-
+	r, closer, err := newNativeReader(s.path)
 	if err != nil {
-		return nil, osutil.OutputErrCombine(output, stderr, err)
+		return nil, err
 	}
+	defer closer()
 
-	prefixPath := path.Join("_", dirPath)
-	pattern, err := regexp.Compile("(?m)^" + regexp.QuoteMeta(prefixPath) + "/([^/\r\n]+)$")
+	ino, err := r.resolvePath(dirPath)
 	if err != nil {
-		return nil, fmt.Errorf("internal error: cannot compile squashfs list dir regexp for %q: %s", dirPath, err)
+		return nil, err
+	}
+	if !ino.IsDir() {
+		return nil, fmt.Errorf("%q is not a directory", dirPath)
 	}
 
-	var directoryContents []string
-	for _, groups := range pattern.FindAllSubmatch(output, -1) {
-		if len(groups) > 1 {
-			directoryContents = append(directoryContents, string(groups[1]))
-		}
+	entries, err := r.readDir(ino.DirStart, ino.DirOffset, ino.DirSize)
+	if err != nil {
+		return nil, err
 	}
 
-	return directoryContents, nil
+	var names []string
+	for _, e := range entries {
+		names = append(names, e.Name)
+	}
+	return names, nil
 }
 
 const maxErrPaths = 10
@@ -742,38 +594,17 @@ func (s *Snap) Build(sourceDir string, opts *BuildOpts) error {
 	return growSnapToMinSize(s.path, MinimumSnapSize)
 }
 
-// BuildDate returns the "Creation or last append time" as reported by unsquashfs.
+// BuildDate returns the modification time from the squashfs superblock.
 func (s *Snap) BuildDate() time.Time {
 	return BuildDate(s.path)
 }
 
-// BuildDate returns the "Creation or last append time" as reported by unsquashfs.
+// BuildDate returns the modification time from the squashfs superblock.
 func BuildDate(path string) time.Time {
-	var t0 time.Time
-
-	const prefix = "Creation or last append time "
-	m := &strutil.MatchCounter{
-		Regexp: regexp.MustCompile("(?m)^" + prefix + ".*$"),
-		N:      1,
+	r, closer, err := newNativeReader(path)
+	if err != nil {
+		return time.Time{}
 	}
-
-	extraArgs := []string{
-		"-no-progress",
-		"-stat",
-		path,
-	}
-
-	cmd := unsquashfsCmd(extraArgs...)
-	cmd.Env = []string{"TZ=UTC"}
-	cmd.Stdout = m
-	cmd.Stderr = m
-	if err := cmd.Run(); err != nil {
-		return t0
-	}
-	matches, count := m.Matches()
-	if count != 1 {
-		return t0
-	}
-	t0, _ = time.Parse(time.ANSIC, matches[0][len(prefix):])
-	return t0
+	closer()
+	return r.ModTime()
 }

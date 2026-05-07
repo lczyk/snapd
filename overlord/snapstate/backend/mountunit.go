@@ -22,15 +22,14 @@ package backend
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
 	"github.com/snapcore/snapd/dirs"
 	"github.com/snapcore/snapd/logger"
-	"github.com/snapcore/snapd/osutil"
 	"github.com/snapcore/snapd/progress"
 	"github.com/snapcore/snapd/snap"
+	"github.com/snapcore/snapd/snap/squashfs"
 )
 
 // MountUnitFlags contains flags that modify behavior of addMountUnit
@@ -56,10 +55,9 @@ func addMountUnit(c snap.ContainerPlaceInfo, mountFlags MountUnitFlags) error {
 	}
 
 	// extract directly to disk -- no FUSE, no privileges needed
-	cmd := exec.Command("unsquashfs", "-d", whereDir, squashfsPath)
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("cannot extract snap with unsquashfs: %v", osutil.OutputErr(output, err))
+	sn := squashfs.New(squashfsPath)
+	if err := sn.Unpack("*", whereDir); err != nil {
+		return fmt.Errorf("cannot extract snap: %v", err)
 	}
 
 	markerDir := filepath.Join(dirs.SnapRunDir, "mounts")

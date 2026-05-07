@@ -1,6 +1,6 @@
 module github.com/snapcore/snapd
 
-go 1.18
+go 1.24
 
 // maze.io/x/crypto/afis imported by github.com/snapcore/secboot/tpm2
 replace maze.io/x/crypto => github.com/snapcore/maze.io-x-crypto v0.0.0-20190131090603-9b94c9afe066
@@ -14,14 +14,10 @@ require (
 	github.com/coreos/go-systemd v0.0.0-20191104093116-d3cd4ed1dbcf
 	github.com/godbus/dbus/v5 v5.1.0
 	github.com/gorilla/mux v1.8.0
-	github.com/gvalkov/golang-evdev v0.0.0-20191114124502-287e62b94bcb
 	github.com/jessevdk/go-flags v1.5.1-0.20210607101731-3927b71304df
 	github.com/juju/ratelimit v1.0.1
 	github.com/mattn/go-runewidth v0.0.15
 	github.com/mvo5/goconfigparser v0.0.0-20231016112547-05bd887f05e1
-	// if below two libseccomp-golang lines are updated, one must also update packaging/ubuntu-14.04/rules
-	github.com/mvo5/libseccomp-golang v0.9.1-0.20180308152521-f4de83b52afb // old trusty builds only
-	github.com/seccomp/libseccomp-golang v0.9.2-0.20220502024300-f57e1d55ea18
 	github.com/snapcore/secboot v0.0.0-20260410084611-3f8b98c2db70
 	golang.org/x/crypto v0.23.0
 	golang.org/x/net v0.21.0 // indirect
@@ -38,7 +34,11 @@ require (
 	gopkg.in/yaml.v3 v3.0.1
 )
 
-require go.etcd.io/bbolt v1.3.9
+require (
+	github.com/klauspost/compress v1.18.6
+	github.com/ulikunitz/xz v0.5.15
+	go.etcd.io/bbolt v1.3.9
+)
 
 require (
 	github.com/canonical/cpuid v0.0.0-20220614022739-219e067757cb // indirect

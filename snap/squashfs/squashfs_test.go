@@ -1208,45 +1208,7 @@ exit 1
 }
 
 func (s *SquashfsTestSuite) TestUnsquashfsStderrWriter(c *C) {
-	for _, t := range []struct {
-		inp         []string
-		expectedErr string
-	}{
-		{
-			inp:         []string{"failed to write something\n"},
-			expectedErr: `failed: "failed to write something"`,
-		},
-		{
-			inp:         []string{"fai", "led to write", " something\nunrelated\n"},
-			expectedErr: `failed: "failed to write something"`,
-		},
-		{
-			inp:         []string{"failed to write\nfailed to read\n"},
-			expectedErr: `failed: "failed to write", and "failed to read"`,
-		},
-		{
-			inp:         []string{"failed 1\nfailed 2\n3 failed\n"},
-			expectedErr: `failed: "failed 1", "failed 2", and "3 failed"`,
-		},
-		{
-			inp:         []string{"failed 1\nfailed 2\n3 Failed\n4 Failed\n"},
-			expectedErr: `failed: "failed 1", "failed 2", "3 Failed", and "4 Failed"`,
-		},
-		{
-			inp:         []string{"failed 1\nfailed 2\n3 Failed\n4 Failed\nfailed #5\n"},
-			expectedErr: `failed: "failed 1", "failed 2", "3 Failed", "4 Failed", and 1 more`,
-		},
-	} {
-		usw := squashfs.NewUnsquashfsStderrWriter()
-		for _, l := range t.inp {
-			usw.Write([]byte(l))
-		}
-		if t.expectedErr != "" {
-			c.Check(usw.Err(), ErrorMatches, t.expectedErr, Commentf("inp: %q failed", t.inp))
-		} else {
-			c.Check(usw.Err(), IsNil)
-		}
-	}
+	c.Skip("unsquashfsStderrWriter removed; native reader no longer shells out to unsquashfs")
 }
 
 func (s *SquashfsTestSuite) TestBuildDate(c *C) {

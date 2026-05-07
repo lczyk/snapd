@@ -21,6 +21,7 @@ package main
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/snapcore/snapd/asserts"
 	"github.com/snapcore/snapd/asserts/sysdb"
@@ -28,25 +29,46 @@ import (
 	"github.com/snapcore/snapd/store"
 )
 
+// assertsDBPath is where the assertion backstore lives on disk.
+// persisting it across installs means canonical's account-keys and
+// the snap-declarations we've seen are kept locally, so refresh /
+// install-base does not re-fetch the whole prereq chain over the
+// network each time.
+const assertsDBPath = "/var/lib/snapd/assertions"
+
 func verifyAssertions(s *store.Store, info *snap.Info, snapPath string) error {
 	hash, _, err := asserts.SnapFileSHA3_384(snapPath)
 	if err != nil {
 		return fmt.Errorf("hash snap: %w", err)
 	}
 
-	db, err := asserts.OpenDatabase(&asserts.DatabaseConfig{
-		Backstore:       asserts.NewMemoryBackstore(),
-		Trusted:         sysdb.Trusted(),
-		OtherPredefined: sysdb.Generic(),
-	})
+	if err := os.MkdirAll(assertsDBPath, 0755); err != nil {
+		return fmt.Errorf("mkdir asserts db: %w", err)
+	}
+	persistDB, err := sysdb.OpenAt(assertsDBPath)
 	if err != nil {
 		return fmt.Errorf("open db: %w", err)
 	}
+	// stack a memory backstore on top so this verify pass can add new
+	// assertions without colliding with what's already on disk; commit
+	// the new ones at the end.
+	db := persistDB.WithStackedBackstore(asserts.NewMemoryBackstore())
 
 	retrieve := func(ref *asserts.Ref) (asserts.Assertion, error) {
 		return s.Assertion(ref.Type, ref.PrimaryKey, nil)
 	}
-	f := asserts.NewFetcher(db, retrieve, db.Add)
+	// db.Add errors with *RevisionError if the assertion is already in
+	// the db at the same or a later rev. that's exactly the situation
+	// when re-installing -- treat it as success so the fetcher keeps
+	// walking prereqs without restarting.
+	save := func(a asserts.Assertion) error {
+		err := db.Add(a)
+		if _, dup := err.(*asserts.RevisionError); dup {
+			return nil
+		}
+		return err
+	}
+	f := asserts.NewFetcher(db, retrieve, save)
 
 	revRef := &asserts.Ref{
 		Type:       asserts.SnapRevisionType,

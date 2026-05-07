@@ -39,7 +39,17 @@ func cmdInstall(args []string) error {
 // for a single snap. idempotent on the snap name + revision: if the
 // revision is already extracted under /snap/<name>/<rev>/, it skips
 // the download but still re-runs the post-install steps.
+//
+// when name ends in .snap and is a regular file, treat it as a
+// sideload: skip the store and assertion verification, parse the
+// snap.yaml from the local file, extract under a synthetic xN
+// revision so it doesn't collide with store-fetched revs.
 func installOne(name string) error {
+	if strings.HasSuffix(name, ".snap") {
+		if _, err := os.Stat(name); err == nil {
+			return installLocal(name)
+		}
+	}
 	st := store.New(nil, nil)
 	ctx := context.Background()
 
@@ -176,6 +186,92 @@ func updateCurrent(info *snap.Info) error {
 func isInstalled(name string) bool {
 	_, err := os.Stat(filepath.Join("/snap", name, "current", "meta", "snap.yaml"))
 	return err == nil
+}
+
+// installLocal handles `snap install ./foo.snap`. no store, no
+// assertion chain -- the user is asserting they trust the file.
+// the revision is synthesised as xN where N is the next free
+// number under /snap/<name>/, matching how upstream tags
+// sideloaded revisions.
+func installLocal(snapPath string) error {
+	abs, err := filepath.Abs(snapPath)
+	if err != nil {
+		return err
+	}
+
+	// peek at the snap.yaml inside the .snap to learn the snap's name
+	// before we know where to put it.
+	sq := squashfs.New(abs)
+	yamlBytes, err := sq.ReadFile("meta/snap.yaml")
+	if err != nil {
+		return fmt.Errorf("read snap.yaml from %s: %w", abs, err)
+	}
+	info, err := snap.InfoFromSnapYaml(yamlBytes)
+	if err != nil {
+		return fmt.Errorf("parse snap.yaml: %w", err)
+	}
+
+	rev, err := nextLocalRevision(info.SnapName())
+	if err != nil {
+		return err
+	}
+	info.Revision = rev
+	mountDir := filepath.Join("/snap", info.SnapName(), rev.String())
+
+	if err := extractTo(abs, mountDir); err != nil {
+		return err
+	}
+	fmt.Printf("installed %s %s -> %s (sideloaded, unverified)\n",
+		info.SnapName(), info.Revision, mountDir)
+
+	if err := updateCurrent(info); err != nil {
+		return fmt.Errorf("update current symlink: %w", err)
+	}
+	if err := pruneOldRevisions(info); err != nil {
+		return fmt.Errorf("prune old revisions: %w", err)
+	}
+
+	if base := info.Base; base != "" && base != "none" && base != "bare" {
+		if !isInstalled(base) {
+			fmt.Printf("installing base %s\n", base)
+			if err := installOne(base); err != nil {
+				return fmt.Errorf("install base %s: %w", base, err)
+			}
+		}
+	}
+
+	if err := wireBins(info, mountDir); err != nil {
+		return fmt.Errorf("wire /snap/bin shims: %w", err)
+	}
+	if t := info.Type(); t == snap.TypeOS || t == snap.TypeBase {
+		if err := wireBaseFs(info, mountDir); err != nil {
+			return fmt.Errorf("wire base fs: %w", err)
+		}
+	}
+	return nil
+}
+
+// nextLocalRevision returns x1, x2, ... -- the next available
+// sideload revision tag for /snap/<name>/.
+func nextLocalRevision(name string) (snap.Revision, error) {
+	entries, err := os.ReadDir(filepath.Join("/snap", name))
+	if err != nil && !os.IsNotExist(err) {
+		return snap.Revision{}, err
+	}
+	max := 0
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		r, err := snap.ParseRevision(e.Name())
+		if err != nil {
+			continue
+		}
+		if r.Local() && -r.N > max {
+			max = -r.N
+		}
+	}
+	return snap.R(-(max + 1)), nil
 }
 
 // pruneOldRevisions removes /snap/<name>/<rev> dirs that aren't the

@@ -1,31 +1,24 @@
-# no-systemd prototype: snapd in a rock, supervised by pebble.
-# usage model (same as fluentd-rock):
-#   podman run -d --name snapd-rock oci-archive:.../snapd-rock_*.rock
-#   podman exec -it snapd-rock snap install <foo>
-#   podman stop snapd-rock && podman rm snapd-rock
-# pebble (pid 1) brings snapd up via the service definition below; the
-# container stays alive until podman stops it. squashfs extraction is
-# built into snapd (native go reader), so no unsquashfs is needed.
+# single-binary snap prototype as a rock. just the snap binary +
+# ca-certs (chisel slice) on a bare base. base snaps install on
+# first use and supply everything else (libc, ld-linux, /usr/bin/*).
 #
-# binaries are pre-staged into ./_stage/ by the top-level Makefile
-# (`make rock` runs `make build` first, then copies them in). this
-# avoids `source: ..` -- which would escape the project dir and dump
-# the build vm's /root into the rock.
+# usage:
+#   make rock                      # build snapdrock_*.rock
+#   make rock-up                   # podman run -d the rock
+#   podman exec -it snap-rock /usr/bin/snap install hello-world
+#   podman exec -it snap-rock /usr/bin/snap run hello-world
 
-name: snapd-rock
-summary: snapd in a rock (no systemd)
+name: snap-rock
+summary: single-binary snap install / run prototype
 description: |
-  snapd running in a minimal rock. mirrors the bare docker image at
-  the repo root: same binaries (snapd, snap, snapctl), same one-shot
-  demo flow. userland is built from chisel slices (bash, coreutils,
-  tar, gzip, grep, gawk, wget, ca-certs) instead of busybox. pebble
-  is the OCI entrypoint / pid 1, replacing tini.
+  one binary -- /usr/bin/snap -- that can install (download +
+  unsquash) and run snaps. no daemon, no state file, no confinement.
+  the container is the security boundary; every snap is treated as
+  classic. base snaps come down on first install and provide the
+  rest of the userland (libc, ld-linux, /usr/bin/*).
 license: GPL-3.0
 version: '0.1'
 
-# bare base = scratch-equivalent. pebble is still auto-included as the
-# entrypoint, which is the key difference vs the dockerfile -- we get
-# init "for free" instead of layering tini on top.
 base: bare
 build-base: ubuntu@24.04
 
@@ -33,72 +26,29 @@ platforms:
   amd64:
   arm64:
 
-# snapd as a pebble service. /run is tmpfs and gets blanked on each
-# container start, so the runtime dirs need creating at boot, not at
-# build time. snapd-start.sh (staged from the host) handles that and
-# then execs snapd.
-services:
-  snapd:
-    override: replace
-    summary: snapd daemon
-    command: /usr/local/bin/snapd-start
-    startup: enabled
-    on-failure: restart
-    environment:
-      PATH: /snap/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-
 environment:
   PATH: /snap/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
 parts:
-  # pre-built static binaries + scripts staged by the host Makefile.
-  binaries:
+  binary:
     plugin: nil
     override-build: |
-      install -Dm755 $CRAFT_PROJECT_DIR/_stage/snapd    $CRAFT_PART_INSTALL/usr/local/bin/snapd
-      install -Dm755 $CRAFT_PROJECT_DIR/_stage/snap     $CRAFT_PART_INSTALL/usr/bin/snap
-      install -Dm755 $CRAFT_PROJECT_DIR/_stage/snapctl  $CRAFT_PART_INSTALL/usr/local/bin/snapctl
-      install -Dm755 $CRAFT_PROJECT_DIR/_stage/snapd-start $CRAFT_PART_INSTALL/usr/local/bin/snapd-start
-      install -Dm755 $CRAFT_PROJECT_DIR/_stage/demo.sh  $CRAFT_PART_INSTALL/usr/local/bin/demo.sh
-      ln -sf /usr/bin/snap $CRAFT_PART_INSTALL/usr/local/bin/snap
+      install -Dm755 $CRAFT_PROJECT_DIR/_stage/snap $CRAFT_PART_INSTALL/usr/bin/snap
 
-  # userland via chisel slices -- the rockcraft-native way to package
-  # only the bits we need from each ubuntu deb, with merged-usr layout
-  # and dependencies resolved automatically. `bash_bins` and friends
-  # land binaries at standard paths (/usr/bin/...) with the right
-  # /lib symlinks already in place, so no manual loader/multiarch
-  # gymnastics needed (unlike busybox-static on bare base).
-  # see https://documentation.ubuntu.com/rockcraft/stable/explanation/chisel/
-  runtime:
+  certs:
     plugin: nil
     stage-packages:
-      - bash_bins                # bash + /bin/sh
-      - coreutils_bins           # cat, ls, mkdir, rm, sleep, echo, printf, test, ...
-      - tar_bins                 # tar
-      - gzip_bins                # gzip
-      - grep_bins                # grep
-      - gawk_bins                # awk
-      - wget_bins                # wget (for snapd's HTTP fetches if needed)
-      - ca-certificates_data     # CA bundle for HTTPS to the snap store
-    override-build: |
-      craftctl default
-      # bash_bins lands /usr/bin/bash; ensure /bin/sh resolves to it
-      # so #!/bin/sh shebangs work without depending on dash being there.
-      mkdir -p $CRAFT_PART_INSTALL/bin
-      [ -e $CRAFT_PART_INSTALL/bin/sh ] || ln -sf /usr/bin/bash $CRAFT_PART_INSTALL/bin/sh
+      - ca-certificates_data
 
-  # writable dirs + minimal /etc that snapd expects on first boot.
   rootfs:
     plugin: nil
-    after: [runtime]
+    after: [certs]
     override-build: |
       install -d $CRAFT_PART_INSTALL/etc
-      install -d $CRAFT_PART_INSTALL/tmp
-      install -d $CRAFT_PART_INSTALL/root
-      install -d $CRAFT_PART_INSTALL/run
-      install -d $CRAFT_PART_INSTALL/var/lib/snapd/cache
       install -d $CRAFT_PART_INSTALL/snap/bin
-      printf 'root:x:0:0:root:/root:/bin/sh\n'   > $CRAFT_PART_INSTALL/etc/passwd
-      printf 'root:x:0:\n'                       > $CRAFT_PART_INSTALL/etc/group
-      printf 'root:*:20000:0:99999:7:::\n'       > $CRAFT_PART_INSTALL/etc/shadow
-      printf 'hosts: files dns\n'                > $CRAFT_PART_INSTALL/etc/nsswitch.conf
+      install -d $CRAFT_PART_INSTALL/var/lib/snapd/snaps
+      install -d $CRAFT_PART_INSTALL/var/snap
+      install -d $CRAFT_PART_INSTALL/tmp
+      printf 'root:x:0:0:root:/root:/bin/sh\n' > $CRAFT_PART_INSTALL/etc/passwd
+      printf 'root:x:0:\n'                     > $CRAFT_PART_INSTALL/etc/group
+      printf 'hosts: files dns\n'              > $CRAFT_PART_INSTALL/etc/nsswitch.conf

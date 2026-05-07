@@ -26,14 +26,12 @@ ROCK_FILE    := rock/$(ROCK_NAME)_$(ROCK_VERSION)_$(ROCK_ARCH).rock
 
 .PHONY: rock-stage
 rock-stage: build  ## Stage the snap binary under rock/_stage/
-	mkdir -p rock/_stage
-	cp ./bin/snap rock/_stage/
+	rm -rf rock/_stage
+	mkdir -p rock/_stage/usr/bin
+	cp ./bin/snap rock/_stage/usr/bin/snap
 
 .PHONY: rock
 rock: rock-stage  ## Build the snap rock (OCI archive via rockcraft)
-	# rockcraft caches part build output and doesn't track _stage/
-	# sources, so clean the binaries part to force a re-copy.
-	cd rock && rockcraft clean binaries >/dev/null 2>&1 || true
 	cd rock && rockcraft pack
 
 ROCK_CONTAINER := snap-rock

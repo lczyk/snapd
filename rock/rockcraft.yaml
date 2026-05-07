@@ -31,9 +31,16 @@ environment:
 
 parts:
   binary:
-    plugin: nil
-    override-build: |
-      install -Dm755 $CRAFT_PROJECT_DIR/_stage/snap $CRAFT_PART_INSTALL/usr/bin/snap
+    # plugin: dump tracks source content so rockcraft notices when
+    # the staged binary changes. plugin: nil with override-build
+    # didn't see the update -- the part hash was based only on the
+    # build script text, so even after `rockcraft clean binaries`
+    # the prime layer reused stale bytes. dump from ./_stage where
+    # the Makefile's rock-stage target arranges the destination
+    # tree (just usr/bin/snap for now).
+    plugin: dump
+    source: ./_stage
+    source-type: local
 
   certs:
     plugin: nil

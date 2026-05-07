@@ -27,12 +27,17 @@ func init() {
 const usage = `snap -- minimal install / run prototype
 
 usage:
-  snap install <name>    fetch <name> from the store, verify
-                         assertions, extract to /snap/<name>/<rev>/
-                         and wire up /snap/bin/<app> wrappers
-  snap run <name>[.<app>]
-                         run the named app from an installed snap
-                         with the right env
+  snap install <name>...  fetch each <name> from the store, verify
+                          assertions, extract to /snap/<name>/<rev>/
+                          and wire up /snap/bin/<app> shims
+  snap run <name>[.<app>] [args...]
+                          run the named app from an installed snap
+                          with the right env. invoking via the
+                          /snap/bin/<x> shim does the same thing
+                          implicitly.
+  snap remove <name>...   delete /snap/<name>, /var/snap/<name>,
+                          the cached download, and the shims
+  snap list               show what's installed under /snap/
 
 every snap is treated as classic. the binary is meant to run inside
 a container; nothing else (apparmor, seccomp, mount namespaces, ...)
@@ -65,6 +70,10 @@ func run(invokedAs string, args []string) error {
 		return cmdInstall(args[1:])
 	case "run":
 		return cmdRun(args[1:])
+	case "remove":
+		return cmdRemove(args[1:])
+	case "list":
+		return cmdList(args[1:])
 	case "-h", "--help", "help":
 		fmt.Print(usage)
 		return nil

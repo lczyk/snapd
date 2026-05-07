@@ -78,7 +78,19 @@ func installOne(name string) error {
 		return fmt.Errorf("parse snap.yaml: %w", err)
 	}
 
-	if base := installedInfo.Base; base != "" && base != "none" && base != "bare" {
+	// snaps without an explicit `base:` historically default to the
+	// legacy `core` os snap (which provides /bin/sh, libc, ...).
+	// pick something modern instead -- `core` still works but is
+	// frozen on 16.04; core22 is supported and small enough.
+	base := installedInfo.Base
+	if base == "" {
+		// don't recurse on a base-less base (e.g. `core` itself sets
+		// no base in its yaml because it *is* the base).
+		if t := installedInfo.Type(); t != snap.TypeOS && t != snap.TypeBase {
+			base = "core22"
+		}
+	}
+	if base != "" && base != "none" && base != "bare" {
 		if !isInstalled(base) {
 			fmt.Printf("installing base %s\n", base)
 			if err := installOne(base); err != nil {

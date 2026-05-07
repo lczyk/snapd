@@ -603,8 +603,14 @@ func (r *nativeReader) readFragment(index uint32, offset uint32, length int) ([]
 		locList[i] = binary.LittleEndian.Uint64(locBuf[i*8:])
 	}
 
-	// locList entries are offsets relative to fragTableStart
-	blockData, err := r.readMetadataBlocks(r.sb.FragTableStart, uint64(locList[blockIdx]), 0, 8192)
+	// locList entries are *absolute* offsets into the squashfs file
+	// pointing at the metadata block holding the fragment entry. don't
+	// add FragTableStart here -- doing so walks past the actual block
+	// and chains hit unexpected EOF reading the next "metadata block"
+	// header from random file bytes. only the entry at `entryOff` is
+	// needed (16 bytes), but read enough to cover any offset within
+	// the standard 8KB metadata block.
+	blockData, err := r.readMetadataBlocks(0, locList[blockIdx], 0, entryOff+16)
 	if err != nil {
 		return nil, fmt.Errorf("read frag block: %w", err)
 	}

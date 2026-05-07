@@ -14,7 +14,7 @@ RUN CGO_ENABLED=0 go build -o /out/snapd ./cmd/snapd \
 
 # stage 2: file collector
 FROM ubuntu:26.04 AS collector
-RUN apt-get update && apt-get install -y ca-certificates busybox tini
+RUN apt-get update && apt-get install -y ca-certificates busybox tini tar
 RUN mkdir -p /out/bin /out/etc/ssl /out/usr/local/bin /out/usr/bin
 
 # snapd binaries (static Go -- CGO_ENABLED=0)
@@ -23,23 +23,26 @@ COPY --from=builder /out/snap  /out/usr/bin/
 COPY --from=builder /out/snapctl /out/usr/local/bin/
 RUN ln -s /usr/bin/snap /out/usr/local/bin/snap
 
-# busybox provides sh, mkdir, sleep, cat, ls, test, rm, tar, gzip
+# busybox provides sh, mkdir, sleep, cat, ls, test, rm, gzip
 RUN cp /bin/busybox /out/bin/ \
- && for cmd in sh mkdir sleep cat ls test rm tar gzip wget echo printf; do \
+ && for cmd in sh mkdir sleep cat ls test rm gzip wget echo printf; do \
       ln -s busybox /out/bin/$cmd; \
     done
+
+# GNU tar (busybox tar lacks --strip-components and other long options)
+RUN cp /usr/bin/tar /out/bin/
 
 # tini (init process for signal handling)
 RUN cp /usr/bin/tini /out/usr/bin/
 
-# shared libraries -- copy linker and libc for dynamically-linked tools (busybox, tini)
+# shared libraries -- copy linker and libc for dynamically-linked tools
 # also set up the multiarch path so that snaps with dynamic binaries can run
 RUN linker=$(ldd /bin/busybox | grep ld-linux | awk '{print $1}') \
  && libdir=$(dirname "$linker") \
  && mkdir -p "/out$libdir" "/out/lib" \
  && cp "$linker" "/out$libdir/" \
  && cp "$linker" /out/lib/ \
- && for bin in /bin/busybox /usr/bin/tini; do \
+ && for bin in /bin/busybox /usr/bin/tini /usr/bin/tar; do \
       ldd "$bin" | grep '=>' | awk '{print $3}' | sort -u | while read -r lib; do \
         [ -f "$lib" ] && cp -n "$lib" "/out$libdir/"; \
         [ -f "$lib" ] && cp -n "$lib" /out/lib/; \
@@ -54,7 +57,7 @@ RUN echo 'root:x:0:0:root:/root:/bin/sh' > /out/etc/passwd \
  && echo 'root:x:0:' > /out/etc/group \
  && echo 'root:*:20000:0:99999:7:::' > /out/etc/shadow \
  && echo 'hosts: files dns' > /out/etc/nsswitch.conf \
- && mkdir -p /out/tmp /out/root /out/run
+ && mkdir -p /out/tmp /out/root /out/run /out/var/lib/snapd/cache
 
 # seed
 COPY entrypoint.sh /out/usr/local/bin/

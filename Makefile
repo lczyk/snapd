@@ -38,19 +38,37 @@ rock: rock-stage  ## Build the snap rock (OCI archive via rockcraft)
 
 ROCK_CONTAINER := snap-rock
 
-.PHONY: rock-up
-rock-up: rock  ## Start the rock container in the background
+# rocks default to pebble as pid 1, which would intercept our cli args
+# (`pebble enter exec ...` syntax). override --entrypoint so we run
+# the snap binary directly. there's no daemon to keep alive anyway.
+
+.PHONY: rock-install
+rock-install: rock  ## Run \`snap install <SNAP>\` against the rock
+	@if [ -z "$(SNAP)" ]; then echo 'usage: make rock-install SNAP=<name>' >&2; exit 1; fi
+	podman run --rm --entrypoint /usr/bin/snap \
+		oci-archive:$(ROCK_FILE) install $(SNAP)
+
+.PHONY: rock-shell
+rock-shell: rock  ## Drop into a shell inside the rock (snap pre-installed). install <base> first if needed
 	-podman rm -f $(ROCK_CONTAINER) >/dev/null 2>&1
-	podman run -d --name $(ROCK_CONTAINER) oci-archive:$(ROCK_FILE) sleep infinity
+	@# bootstrap a base snap so /bin/sh exists, then start a sleeping
+	@# container so podman exec can attach with -it.
+	podman run --rm --entrypoint /usr/bin/snap \
+		oci-archive:$(ROCK_FILE) install $(or $(BASE),core22)
+	podman run -d --name $(ROCK_CONTAINER) \
+		--entrypoint /bin/sh oci-archive:$(ROCK_FILE) -c 'sleep infinity'
+	-podman exec -it $(ROCK_CONTAINER) /bin/sh
+	podman rm -f $(ROCK_CONTAINER) >/dev/null 2>&1
+
+.PHONY: rock-up
+rock-up: rock  ## Start the rock detached (snap binary as entrypoint, sleep infinity)
+	-podman rm -f $(ROCK_CONTAINER) >/dev/null 2>&1
+	podman run -d --name $(ROCK_CONTAINER) \
+		--entrypoint /usr/bin/snap oci-archive:$(ROCK_FILE) help
 
 .PHONY: rock-down
 rock-down:  ## Stop and remove the rock container
 	-podman rm -f $(ROCK_CONTAINER) >/dev/null 2>&1
-
-.PHONY: rock-shell
-rock-shell: rock-up  ## Drop into an interactive shell in the rock
-	-podman exec -it $(ROCK_CONTAINER) /bin/sh
-	podman rm -f $(ROCK_CONTAINER) >/dev/null 2>&1
 
 .PHONY: rock-clean
 rock-clean:  ## Remove built rock artefacts

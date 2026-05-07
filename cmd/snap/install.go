@@ -55,6 +55,14 @@ func installOne(name string) error {
 		if err := download(ctx, st, info); err != nil {
 			return err
 		}
+		fmt.Printf("verifying assertions for %s\n", info.SnapName())
+		if err := verifyAssertions(st, info, snapDownloadPath(info)); err != nil {
+			// don't leave the unverified .snap on disk -- a future
+			// install attempt would skip the download (sha cache hit
+			// in store.Download) and pick up the bad blob.
+			_ = os.Remove(snapDownloadPath(info))
+			return fmt.Errorf("verify: %w", err)
+		}
 		if err := extractTo(snapDownloadPath(info), mountDir); err != nil {
 			return err
 		}

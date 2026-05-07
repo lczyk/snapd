@@ -500,13 +500,13 @@ func (r *nativeReader) writeFileData(ino *inode, w io.Writer) error {
 		} else {
 			blockData = make([]byte, dataSize)
 			if _, err := r.ra.ReadAt(blockData, int64(pos)); err != nil {
-				return fmt.Errorf("read data block %d at %d: %w", i, pos, err)
+				return fmt.Errorf("read data block %d at %d (size %d): %w", i, pos, dataSize, err)
 			}
 			if compressed {
 				var err error
 				blockData, err = r.decompress(blockData)
 				if err != nil {
-					return fmt.Errorf("decompress data block %d: %w", i, err)
+					return fmt.Errorf("decompress data block %d at %d (size %d, compressed): %w", i, pos, dataSize, err)
 				}
 			}
 		}

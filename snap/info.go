@@ -31,7 +31,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/snapcore/snapd/desktop/desktopentry"
 	"github.com/snapcore/snapd/dirs"
 	"github.com/snapcore/snapd/logger"
 	"github.com/snapcore/snapd/metautil"
@@ -1476,46 +1475,11 @@ func (app *AppInfo) SecurityTag() string {
 // DesktopFile returns the path to the installed optional desktop file for the
 // application.
 func (app *AppInfo) DesktopFile() string {
-	desktopFileIDs, err := app.Snap.DesktopPlugFileIDs()
-	if err != nil || len(desktopFileIDs) == 0 {
-		return app.fallbackDesktopFile()
-	}
-
-	if app.CommonID != "" {
-		desktopID := app.CommonID + ".desktop"
-
-		if !strutil.ListContains(desktopFileIDs, desktopID) {
-			// In case the common ID is not one of the snap (and store-approved)
-			// desktop-file-ids, we should not use it as the app desktop file,
-			// but rather fallback to the default.
-			return app.fallbackDesktopFile()
-		}
-
-		desktopFileIDs = []string{desktopID}
-	}
-
-	// Loop through desktop-file-ids desktop interface plug attribute in order to
-	// have deterministic output
-	for _, desktopFileID := range desktopFileIDs {
-		desktopFile := filepath.Join(dirs.SnapDesktopFilesDir, desktopFileID)
-		if !osutil.FileExists(desktopFile) {
-			continue
-		}
-		// No need to also check instance name because we already filter by the
-		// snap's desktop file ids
-		de, err := desktopentry.Read(desktopFile)
-		if err != nil {
-			// Errors when reading indicates either an issue opening the desktop
-			// file or a malformed desktop file, both of which are internal
-			// errors caused somewhere else.
-			// Let's log for debugging and try the next desktop file id.
-			logger.Debugf("internal error: failed to read %q: %v", desktopFile, err)
-			continue
-		}
-		if de.SnapAppName == app.Name {
-			return desktopFile
-		}
-	}
+	// no-systemd prototype: desktop integration was chainsawed away; the
+	// full implementation in upstream walks the snap's desktop-file-ids
+	// and matches them against /var/lib/snapd/desktop/applications/. we
+	// only need the fallback path naming since nothing in the prototype
+	// looks at desktop files anyway.
 	return app.fallbackDesktopFile()
 }
 

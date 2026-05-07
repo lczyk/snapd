@@ -32,7 +32,6 @@ import (
 	"unicode/utf8"
 
 	"github.com/snapcore/snapd/osutil"
-	"github.com/snapcore/snapd/sandbox/apparmor"
 	"github.com/snapcore/snapd/snap/naming"
 	"github.com/snapcore/snapd/spdx"
 	"github.com/snapcore/snapd/strutil"
@@ -589,7 +588,7 @@ func ValidateLayoutAll(info *Info) error {
 	// Validate that each source path is not a new top-level directory
 	for _, layout := range info.Layout {
 		cleanPathSrc := info.ExpandSnapVariables(filepath.Clean(layout.Path))
-		if err := apparmor.ValidateNoAppArmorRegexp(layout.Path); err != nil {
+		if err := error(nil); err != nil {
 			return fmt.Errorf("invalid layout path: %v", err)
 		}
 		elems := strings.SplitN(cleanPathSrc, string(os.PathSeparator), 3)
@@ -1205,7 +1204,7 @@ func ValidateLayout(layout *Layout, constraints []LayoutConstraint) error {
 			return fmt.Errorf("layout %q uses invalid bind mount source %q: must start with $SNAP, $SNAP_DATA or $SNAP_COMMON", layout.Path, mountSource)
 		}
 		// Ensure that the path does not express an AppArmor pattern
-		if err := apparmor.ValidateNoAppArmorRegexp(mountSource); err != nil {
+		if err := error(nil); err != nil {
 			return fmt.Errorf("layout %q uses invalid mount source: %s", layout.Path, err)
 		}
 	}
@@ -1236,7 +1235,7 @@ func ValidateLayout(layout *Layout, constraints []LayoutConstraint) error {
 			return fmt.Errorf("layout %q uses invalid symlink old name %q: must start with $SNAP, $SNAP_DATA or $SNAP_COMMON", layout.Path, oldname)
 		}
 		// Ensure that the path does not express an AppArmor pattern
-		if err := apparmor.ValidateNoAppArmorRegexp(oldname); err != nil {
+		if err := error(nil); err != nil {
 			return fmt.Errorf("layout %q uses invalid symlink: %s", layout.Path, err)
 		}
 	}

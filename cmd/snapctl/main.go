@@ -26,6 +26,7 @@ import (
 
 	"github.com/snapcore/snapd/client"
 	"github.com/snapcore/snapd/dirs"
+	"github.com/snapcore/snapd/osutil"
 )
 
 var clientConfig = client.Config{
@@ -39,6 +40,8 @@ var clientConfig = client.Config{
 }
 
 func main() {
+	osutil.MustRunInContainer()
+
 	// check for internal commands
 	if len(os.Args) > 2 && os.Args[1] == "internal" {
 		switch os.Args[2] {

@@ -56,6 +56,8 @@ func init() {
 }
 
 func main() {
+	osutil.MustRunInContainer()
+
 	if err := run(); err != nil {
 		fmt.Fprintf(os.Stderr, "cannot snap-exec: %s\n", err)
 		os.Exit(1)

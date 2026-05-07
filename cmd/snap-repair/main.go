@@ -28,6 +28,7 @@ import (
 	"github.com/jessevdk/go-flags"
 
 	"github.com/snapcore/snapd/logger"
+	"github.com/snapcore/snapd/osutil"
 	"github.com/snapcore/snapd/release"
 	"github.com/snapcore/snapd/snapdenv"
 	"github.com/snapcore/snapd/snapdtool"
@@ -56,6 +57,8 @@ func init() {
 var errOnClassic = fmt.Errorf("cannot use snap-repair on a classic system")
 
 func main() {
+	osutil.MustRunInContainer()
+
 	// TODO setup FIPS if needed?
 
 	if err := run(); err != nil {

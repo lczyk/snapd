@@ -30,6 +30,7 @@ import (
 
 	"github.com/snapcore/snapd/daemon"
 	"github.com/snapcore/snapd/logger"
+	"github.com/snapcore/snapd/osutil"
 	"github.com/snapcore/snapd/sandbox"
 	"github.com/snapcore/snapd/secboot"
 	"github.com/snapcore/snapd/snapdenv"
@@ -46,6 +47,8 @@ func init() {
 }
 
 func main() {
+	osutil.MustRunInContainer()
+
 	// When preseeding re-exec is not used
 	if snapdenv.Preseeding() {
 		logger.Noticef("running for preseeding")

@@ -112,5 +112,9 @@ cmd/test-driver
 *.packages
 *.packages.stderr
 
+# Built binaries at repo root
+/snapd
+/squashfs.test
+
 # Directory that is used by the run-spread script
 /built-snap

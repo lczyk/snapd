@@ -100,6 +100,8 @@ func run(args []string) error {
 }
 
 func main() {
+	osutil.MustRunInContainer()
+
 	if err := run(os.Args); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)

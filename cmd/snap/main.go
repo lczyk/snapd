@@ -446,6 +446,8 @@ func exitCodeFromError(err error) int {
 }
 
 func main() {
+	osutil.MustRunInContainer()
+
 	loggerWithJournalMaybe()
 	snapdtool.ExecInSnapdOrCoreSnap()
 

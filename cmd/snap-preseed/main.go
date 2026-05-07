@@ -87,6 +87,8 @@ func probeCore20ImageDir(dir string) bool {
 }
 
 func main() {
+	osutil.MustRunInContainer()
+
 	parser := Parser()
 	if err := run(parser, os.Args[1:]); err != nil {
 		fmt.Fprintf(Stderr, "error: %v\n", err)

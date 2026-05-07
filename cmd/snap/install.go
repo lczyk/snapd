@@ -15,6 +15,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/snapcore/snapd/progress"
 	"github.com/snapcore/snapd/snap"
@@ -88,6 +89,15 @@ func installOne(name string) error {
 
 	if err := wireBins(installedInfo, mountDir); err != nil {
 		return fmt.Errorf("wire /snap/bin shims: %w", err)
+	}
+	// base / os snaps own the userland everything else needs (libc,
+	// ld-linux-*, /bin/sh, ...). expose a few of those at standard
+	// host paths so dynamic snap binaries can resolve their ELF
+	// interpreter and shebangs work.
+	if t := installedInfo.Type(); t == snap.TypeOS || t == snap.TypeBase {
+		if err := wireBaseFs(installedInfo, mountDir); err != nil {
+			return fmt.Errorf("wire base fs: %w", err)
+		}
 	}
 	return nil
 }
@@ -168,6 +178,79 @@ func wireBins(info *snap.Info, _ string) error {
 	return nil
 }
 
+// wireBaseFs symlinks the base snap's dynamic linker, /bin/sh, and
+// multiarch lib dir into host-level paths so non-snap-confined
+// binaries find them. only relevant for base / os snaps.
+//
+// without this:
+//   - dynamic snap binaries fail with "no such file or directory" on
+//     exec because their hardcoded ELF interpreter (/lib/ld-linux-*
+//     or /lib64/ld-linux-*) doesn't exist
+//   - shebang scripts (#!/bin/sh ...) fail for the same reason
+func wireBaseFs(info *snap.Info, _ string) error {
+	baseRoot := filepath.Join("/snap", info.SnapName(), "current")
+
+	// idempotent symlink: rm + ln -s
+	link := func(target, linkPath string) error {
+		if _, err := os.Stat(target); err != nil {
+			// target not present in this base -- skip silently;
+			// e.g. /usr/lib/x86_64-linux-gnu doesn't exist in
+			// an arm64-only base.
+			return nil
+		}
+		if err := os.MkdirAll(filepath.Dir(linkPath), 0755); err != nil {
+			return err
+		}
+		_ = os.Remove(linkPath)
+		return os.Symlink(target, linkPath)
+	}
+
+	// dynamic linker. base snaps put it at /usr/lib/<triplet>/ld-linux-*.so.*
+	// or at /usr/lib/ld-linux-*.so.*. expose at /lib and /lib64 since
+	// different binaries hardcode different paths.
+	for _, t := range []string{"aarch64-linux-gnu", "x86_64-linux-gnu", "arm-linux-gnueabihf"} {
+		archDir := filepath.Join(baseRoot, "usr/lib", t)
+		entries, err := os.ReadDir(archDir)
+		if err != nil {
+			continue
+		}
+		for _, e := range entries {
+			name := e.Name()
+			if !strings.HasPrefix(name, "ld-linux") || !strings.Contains(name, ".so") {
+				continue
+			}
+			if err := link(filepath.Join(archDir, name), filepath.Join("/lib", name)); err != nil {
+				return err
+			}
+			if err := link(filepath.Join(archDir, name), filepath.Join("/lib64", name)); err != nil {
+				return err
+			}
+		}
+		// also symlink the whole multiarch dir at /lib/<triplet> so
+		// DT_NEEDED entries (libc.so.6, libpthread.so.0, ...) resolve
+		// without LD_LIBRARY_PATH gymnastics.
+		if err := link(archDir, filepath.Join("/lib", t)); err != nil {
+			return err
+		}
+	}
+
+	// /bin/sh -> base's bash. covers #!/bin/sh shebangs.
+	for _, sh := range []string{
+		filepath.Join(baseRoot, "usr/bin/bash"),
+		filepath.Join(baseRoot, "bin/bash"),
+		filepath.Join(baseRoot, "usr/bin/sh"),
+		filepath.Join(baseRoot, "bin/sh"),
+	} {
+		if _, err := os.Stat(sh); err == nil {
+			if err := link(sh, "/bin/sh"); err != nil {
+				return err
+			}
+			break
+		}
+	}
+	return nil
+}
+
 // io.Discard placeholder so the import isn't dropped if I add a
-// Reader path later. keeps the file lint-clean for now.
+// Reader path later.
 var _ = io.Discard

@@ -13,7 +13,16 @@ package main
 import (
 	"fmt"
 	"os"
+
+	"github.com/snapcore/snapd/snap"
 )
+
+func init() {
+	// upstream daemon installs a real sanitiser via the interfaces
+	// package; we have no interfaces, so just no-op it -- otherwise
+	// any snap.InfoFromSnapYaml call panics.
+	snap.SanitizePlugsSlots = func(*snap.Info) {}
+}
 
 const usage = `snap -- minimal install / run prototype
 

@@ -3,10 +3,9 @@
 # security boundary. base snaps are downloaded into /snap/<base>/
 # on first install and provide all the libs the snap apps need.
 
-FROM ubuntu:24.04 AS builder
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    golang-go ca-certificates \
- && rm -rf /var/lib/apt/lists/*
+# go.mod requires 1.24, ubuntu:24.04 ships 1.22 -- use the official
+# golang image instead of pulling go from apt.
+FROM golang:1.24 AS builder
 WORKDIR /build
 COPY go.mod go.sum ./
 RUN go mod download

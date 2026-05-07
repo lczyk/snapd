@@ -73,6 +73,14 @@ func installOne(name string) error {
 		return fmt.Errorf("update current symlink: %w", err)
 	}
 
+	// after pointing current at the new revision, drop everything else
+	// under /snap/<name>/ that isn't the current rev. without this,
+	// every install/refresh cycle leaves the previous revision sitting
+	// on disk forever.
+	if err := pruneOldRevisions(info); err != nil {
+		return fmt.Errorf("prune old revisions: %w", err)
+	}
+
 	// re-read snap.yaml from the extracted tree -- it has the apps
 	// and the declared base (which info.Base from the store should
 	// also report, but reading from the extracted file is the source
@@ -168,6 +176,31 @@ func updateCurrent(info *snap.Info) error {
 func isInstalled(name string) bool {
 	_, err := os.Stat(filepath.Join("/snap", name, "current", "meta", "snap.yaml"))
 	return err == nil
+}
+
+// pruneOldRevisions removes /snap/<name>/<rev> dirs that aren't the
+// current revision. called after a fresh install / refresh so we
+// don't leak storage on each update cycle.
+func pruneOldRevisions(info *snap.Info) error {
+	parent := filepath.Join("/snap", info.SnapName())
+	entries, err := os.ReadDir(parent)
+	if err != nil {
+		return err
+	}
+	keep := info.Revision.String()
+	for _, e := range entries {
+		n := e.Name()
+		if n == "current" || n == ".current.new" || n == keep {
+			continue
+		}
+		if err := os.RemoveAll(filepath.Join(parent, n)); err != nil {
+			return err
+		}
+		// also drop the cached download for the old rev.
+		_ = os.Remove(filepath.Join("/var/lib/snapd/snaps",
+			fmt.Sprintf("%s_%s.snap", info.SnapName(), n)))
+	}
+	return nil
 }
 
 // wireBins makes /snap/bin/<app> -> /usr/bin/snap so that running the

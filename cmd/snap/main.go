@@ -37,6 +37,11 @@ usage:
                           implicitly.
   snap remove <name>...   delete /snap/<name>, /var/snap/<name>,
                           the cached download, and the shims
+  snap refresh [<name>...]
+                          re-install each <name> at the latest
+                          revision in the store; with no args,
+                          refresh every installed snap. old
+                          revisions are pruned automatically.
   snap list               show what's installed under /snap/
 
 every snap is treated as classic. the binary is meant to run inside
@@ -72,6 +77,8 @@ func run(invokedAs string, args []string) error {
 		return cmdRun(args[1:])
 	case "remove":
 		return cmdRemove(args[1:])
+	case "refresh":
+		return cmdRefresh(args[1:])
 	case "list":
 		return cmdList(args[1:])
 	case "-h", "--help", "help":

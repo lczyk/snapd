@@ -32,6 +32,7 @@ import (
 	"time"
 
 	"github.com/klauspost/compress/zstd"
+	lzo "github.com/rasky/go-lzo"
 	"github.com/ulikunitz/xz"
 )
 
@@ -187,6 +188,12 @@ func (r *nativeReader) decompress(data []byte) ([]byte, error) {
 		}
 		defer rd.Close()
 		return io.ReadAll(rd)
+	case compLzo:
+		// LZO blocks in squashfs are LZO1X. the output size for a
+		// data block is at most blockSize (capped by the spec); for
+		// metadata blocks it's at most 8KB. pass 0 here -- the
+		// decoder grows the buffer as it goes when outLen is 0.
+		return lzo.Decompress1X(bytes.NewReader(data), len(data), 0)
 	default:
 		return nil, fmt.Errorf("unsupported compression type: %d", r.sb.Compression)
 	}

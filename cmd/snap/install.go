@@ -268,6 +268,45 @@ func wireBaseFs(info *snap.Info, _ string) error {
 			break
 		}
 	}
+
+	// /usr/bin/* and /bin/* from the base, for shebangs like
+	// "#!/usr/bin/env bash" and snap-shipped scripts that call
+	// out to standard utilities (sed, grep, ls, ...). preserve
+	// /usr/bin/snap (this binary) so the shim chain keeps working.
+	for _, src := range []struct{ from, to string }{
+		{filepath.Join(baseRoot, "usr/bin"), "/usr/bin"},
+		{filepath.Join(baseRoot, "bin"), "/bin"},
+		{filepath.Join(baseRoot, "usr/sbin"), "/usr/sbin"},
+		{filepath.Join(baseRoot, "sbin"), "/sbin"},
+	} {
+		entries, err := os.ReadDir(src.from)
+		if err != nil {
+			continue
+		}
+		if err := os.MkdirAll(src.to, 0755); err != nil {
+			return err
+		}
+		for _, e := range entries {
+			dst := filepath.Join(src.to, e.Name())
+			if dst == "/usr/bin/snap" || dst == "/bin/snap" {
+				// don't clobber the snap multitool itself.
+				continue
+			}
+			// only link if nothing's there or what's there is a
+			// stale symlink to a previous base; an existing
+			// non-symlink (the snap binary copied to /bin from
+			// the docker COPY) is left alone.
+			if existing, err := os.Lstat(dst); err == nil {
+				if existing.Mode()&os.ModeSymlink == 0 {
+					continue
+				}
+				_ = os.Remove(dst)
+			}
+			if err := os.Symlink(filepath.Join(src.from, e.Name()), dst); err != nil {
+				return err
+			}
+		}
+	}
 	return nil
 }
 

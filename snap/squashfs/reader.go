@@ -232,8 +232,15 @@ func (r *nativeReader) readInode(ref uint64) (*inode, error) {
 	blockOff := ref >> 16
 	byteOff := int(ref & 0xFFFF)
 
-	
-	data, err := r.readMetadataBlocks(r.sb.InodeTableStart, blockOff, byteOff, 256)
+	// inode payload size varies: dirs / symlinks fit in a few dozen bytes,
+	// but a regular file's payload is 32 bytes of fixed fields followed by
+	// 4 bytes per data block. for a 128KB blocksize, this reads enough
+	// inode bytes to cover files up to ~2GB. without it, larger files
+	// silently get zeroed past the first 56 blocks because readU32 on an
+	// exhausted bytes.Reader returns zero and writeFileData treats
+	// dataSize==0 as a sparse all-zero block.
+	const inodeReadSize = 65536
+	data, err := r.readMetadataBlocks(r.sb.InodeTableStart, blockOff, byteOff, inodeReadSize)
 	if err != nil {
 		return nil, fmt.Errorf("read inode block: %w", err)
 	}

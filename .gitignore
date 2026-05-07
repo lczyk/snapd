@@ -118,3 +118,7 @@ cmd/test-driver
 
 # Directory that is used by the run-spread script
 /built-snap
+
+# rock artefacts
+/rock/_stage/
+/rock/*.rock

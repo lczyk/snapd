@@ -1,0 +1,110 @@
+# no-systemd prototype: snapd in a rock, supervised by pebble.
+# rocks ship pebble as pid 1, so it plays the role tini did in the docker
+# image -- plus it manages snapd as a long-running service.
+# squashfs extraction is built into snapd (native go reader), so no
+# unsquashfs is needed at runtime.
+#
+# binaries and scripts are pre-staged into ./_stage/ by the top-level
+# Makefile (`make rock` runs `make build` first, then copies bins +
+# entrypoint.sh + demo.sh in). this avoids `source: ..` -- which would
+# escape the project dir and dump the build vm's /root into the rock.
+
+name: snapd-rock
+summary: snapd in a rock (no systemd)
+description: |
+  snapd running under pebble in a minimal rock. mirrors the bare docker
+  image at the repo root: same binaries (snapd, snap, snapctl), same
+  busybox + gnu tar runtime, same demo flow. pebble replaces tini as
+  pid 1 and supervises snapd.
+license: GPL-3.0
+version: '0.1'
+
+# bare base = scratch-equivalent. pebble is still auto-included as the
+# entrypoint, which is the key difference vs the dockerfile -- we get
+# init "for free" instead of layering tini on top.
+base: bare
+build-base: ubuntu@24.04
+
+platforms:
+  amd64:
+  arm64:
+
+# pebble service -- snapd starts on boot, restarts on failure.
+services:
+  snapd:
+    override: replace
+    summary: snapd daemon
+    command: /usr/local/bin/snapd
+    startup: enabled
+    on-failure: restart
+    environment:
+      PATH: /snap/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+environment:
+  PATH: /snap/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+parts:
+  # pre-built static binaries + scripts staged by the host Makefile.
+  binaries:
+    plugin: nil
+    override-build: |
+      install -Dm755 $CRAFT_PROJECT_DIR/_stage/snapd    $CRAFT_PART_INSTALL/usr/local/bin/snapd
+      install -Dm755 $CRAFT_PROJECT_DIR/_stage/snap     $CRAFT_PART_INSTALL/usr/bin/snap
+      install -Dm755 $CRAFT_PROJECT_DIR/_stage/snapctl  $CRAFT_PART_INSTALL/usr/local/bin/snapctl
+      install -Dm755 $CRAFT_PROJECT_DIR/_stage/entrypoint.sh $CRAFT_PART_INSTALL/usr/local/bin/entrypoint.sh
+      install -Dm755 $CRAFT_PROJECT_DIR/_stage/demo.sh  $CRAFT_PART_INSTALL/usr/local/bin/demo.sh
+      ln -sf /usr/bin/snap $CRAFT_PART_INSTALL/usr/local/bin/snap
+
+  # busybox + gnu tar + ca-certs -- the userland the dockerfile cherry-picks
+  # from an ubuntu collector stage. stage-packages gives us the same set
+  # via the base's package archive, with libs resolved automatically.
+  runtime:
+    plugin: nil
+    stage-packages:
+      - busybox-static
+      - tar
+      - ca-certificates
+    override-build: |
+      craftctl default
+      mkdir -p $CRAFT_PART_INSTALL/bin $CRAFT_PART_INSTALL/lib $CRAFT_PART_INSTALL/lib64
+      # busybox-static lands at /usr/bin/busybox on ubuntu. point the
+      # applet symlinks at the absolute path so #!/bin/sh resolves
+      # correctly (relative `ln -sf busybox` would look for /bin/busybox
+      # and silently break the shebang).
+      ln -sf /usr/bin/busybox $CRAFT_PART_INSTALL/bin/busybox
+      for cmd in sh mkdir sleep cat ls test rm gzip wget echo printf grep awk; do
+        ln -sf /usr/bin/busybox $CRAFT_PART_INSTALL/bin/$cmd
+      done
+      # bare base puts everything under /usr/lib, but ubuntu binaries are
+      # built with ELF interpreters like /lib/ld-linux-aarch64.so.1 or
+      # /lib64/ld-linux-x86-64.so.2. expose the loader at both paths so
+      # dynamically-linked tools (tar, openssl) can actually exec.
+      for ld in $(find $CRAFT_PART_INSTALL/usr/lib -maxdepth 3 -name 'ld-linux-*.so.*' 2>/dev/null); do
+        base=$(basename "$ld")
+        rel=${ld#$CRAFT_PART_INSTALL}
+        ln -sf "$rel" "$CRAFT_PART_INSTALL/lib/$base"
+        ln -sf "$rel" "$CRAFT_PART_INSTALL/lib64/$base"
+      done
+      # multiarch lib dir at /lib/<triplet> so DT_NEEDED entries resolve
+      # without LD_LIBRARY_PATH gymnastics.
+      for d in $CRAFT_PART_INSTALL/usr/lib/*-linux-gnu; do
+        [ -d "$d" ] || continue
+        base=$(basename "$d")
+        ln -sf "/usr/lib/$base" "$CRAFT_PART_INSTALL/lib/$base"
+      done
+
+  # writable dirs + minimal /etc that snapd expects on first boot.
+  rootfs:
+    plugin: nil
+    after: [runtime]
+    override-build: |
+      install -d $CRAFT_PART_INSTALL/etc
+      install -d $CRAFT_PART_INSTALL/tmp
+      install -d $CRAFT_PART_INSTALL/root
+      install -d $CRAFT_PART_INSTALL/run
+      install -d $CRAFT_PART_INSTALL/var/lib/snapd/cache
+      install -d $CRAFT_PART_INSTALL/snap/bin
+      printf 'root:x:0:0:root:/root:/bin/sh\n'   > $CRAFT_PART_INSTALL/etc/passwd
+      printf 'root:x:0:\n'                       > $CRAFT_PART_INSTALL/etc/group
+      printf 'root:*:20000:0:99999:7:::\n'       > $CRAFT_PART_INSTALL/etc/shadow
+      printf 'hosts: files dns\n'                > $CRAFT_PART_INSTALL/etc/nsswitch.conf

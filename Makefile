@@ -35,6 +35,34 @@ tree: docker  ## List the bare container filesystem (tar tv)
 image-size: docker  ## Show the Docker image size
 	@docker images snapd-poc --format "table {{.Repository}}\t{{.Tag}}\t{{.Size}}"
 
+ROCK_NAME    := snapd-rock
+ROCK_VERSION := 0.1
+ROCK_ARCH    := $(shell dpkg --print-architecture 2>/dev/null || echo $(GOARCH))
+ROCK_FILE    := rock/$(ROCK_NAME)_$(ROCK_VERSION)_$(ROCK_ARCH).rock
+
+.PHONY: rock-stage
+rock-stage: build  ## Stage pre-built bins + scripts under rock/_stage/
+	mkdir -p rock/_stage
+	cp ./bin/snapd ./bin/snap ./bin/snapctl entrypoint.sh demo.sh rock/_stage/
+
+.PHONY: rock
+rock: rock-stage  ## Build the snapd rock (OCI archive via rockcraft)
+	cd rock && rockcraft pack
+
+# podman accepts oci-archive: image refs directly -- no daemon, no load step.
+.PHONY: rock-demo
+rock-demo: rock  ## Run the canned demo from the rock (via pebble)
+	podman run --rm oci-archive:$(ROCK_FILE) exec /usr/local/bin/entrypoint.sh demo
+
+.PHONY: rock-shell
+rock-shell: rock  ## Drop into an interactive shell in the rock
+	podman run --rm -it --entrypoint /bin/sh oci-archive:$(ROCK_FILE)
+
+.PHONY: rock-clean
+rock-clean:  ## Remove built rock artefacts
+	rm -rf rock/_stage rock/*.rock
+	cd rock && rockcraft clean || true
+
 .PHONY: clean
 clean:  ## Remove built binaries
 	rm -rf ./bin

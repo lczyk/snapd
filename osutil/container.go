@@ -48,8 +48,13 @@ func MustRunInContainer() {
 }
 
 func isContainer() bool {
-	if _, err := os.Stat("/.dockerenv"); err == nil {
-		return true
+	// docker drops /.dockerenv, podman drops /run/.containerenv. on cgroup
+	// v2 hosts /proc/1/cgroup is just "0::/" with no identifying marker,
+	// so the file probes are the reliable signal.
+	for _, p := range []string{"/.dockerenv", "/run/.containerenv"} {
+		if _, err := os.Stat(p); err == nil {
+			return true
+		}
 	}
 	data, err := os.ReadFile("/proc/1/cgroup")
 	if err != nil {

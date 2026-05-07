@@ -232,20 +232,57 @@ func (r *nativeReader) readInode(ref uint64) (*inode, error) {
 	blockOff := ref >> 16
 	byteOff := int(ref & 0xFFFF)
 
-	// inode payload size varies: dirs / symlinks fit in a few dozen bytes,
-	// but a regular file's payload is 32 bytes of fixed fields followed by
-	// 4 bytes per data block. for a 128KB blocksize, this reads enough
-	// inode bytes to cover files up to ~2GB. without it, larger files
-	// silently get zeroed past the first 56 blocks because readU32 on an
-	// exhausted bytes.Reader returns zero and writeFileData treats
-	// dataSize==0 as a sparse all-zero block.
-	const inodeReadSize = 65536
-	data, err := r.readMetadataBlocks(r.sb.InodeTableStart, blockOff, byteOff, inodeReadSize)
+	// 256 bytes covers every inode's fixed header (max 56 bytes for
+	// extended file) and the block-sizes array for files up to 56 blocks
+	// (~7MB at 128KB blocksize). for larger files we re-read with the
+	// exact size below, after parsing FileSize. without the re-read,
+	// readU32 on the exhausted bytes.Reader returns zero for missing
+	// block sizes and writeFileData treats dataSize==0 as a sparse
+	// all-zero block, silently truncating the file.
+	data, err := r.readMetadataBlocks(r.sb.InodeTableStart, blockOff, byteOff, 256)
 	if err != nil {
 		return nil, fmt.Errorf("read inode block: %w", err)
 	}
 	if len(data) < 16 {
 		return nil, fmt.Errorf("inode data too short: %d bytes", len(data))
+	}
+
+	// for file inodes, compute exact metadata length and re-read if 256
+	// wasn't enough. for everything else 256 is plenty.
+	inoType := binary.LittleEndian.Uint16(data[0:2])
+	blockSize := uint64(r.sb.BlockSize)
+	var needed int
+	switch inoType {
+	case inodeBasicFile:
+		if len(data) >= 32 {
+			fragIndex := binary.LittleEndian.Uint32(data[20:24])
+			fileSize := uint64(binary.LittleEndian.Uint32(data[28:32]))
+			var blocks uint64
+			if fragIndex != 0xFFFFFFFF {
+				blocks = fileSize / blockSize
+			} else {
+				blocks = (fileSize + blockSize - 1) / blockSize
+			}
+			needed = 32 + int(blocks)*4
+		}
+	case inodeExtFile:
+		if len(data) >= 56 {
+			fileSize := binary.LittleEndian.Uint64(data[24:32])
+			fragIndex := binary.LittleEndian.Uint32(data[44:48])
+			var blocks uint64
+			if fragIndex != 0xFFFFFFFF {
+				blocks = fileSize / blockSize
+			} else {
+				blocks = (fileSize + blockSize - 1) / blockSize
+			}
+			needed = 56 + int(blocks)*4
+		}
+	}
+	if needed > len(data) {
+		data, err = r.readMetadataBlocks(r.sb.InodeTableStart, blockOff, byteOff, needed)
+		if err != nil {
+			return nil, fmt.Errorf("re-read inode block (%d bytes): %w", needed, err)
+		}
 	}
 
 	ino := &inode{}

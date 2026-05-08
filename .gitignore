@@ -122,3 +122,6 @@ cmd/test-driver
 # rock artefacts
 /rock/_stage/
 /rock/*.rock
+
+# build output
+/bin/

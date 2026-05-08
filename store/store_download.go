@@ -162,9 +162,16 @@ func (s *Store) Download(ctx context.Context, name string, targetPath string, do
 	}
 	defer d.Close()
 
-	partialPath := targetPath + ".partial"
-	w, err := os.OpenFile(partialPath, os.O_RDWR|os.O_CREATE, 0600)
+	// each in-flight download gets its own tempfile so concurrent
+	// downloaders of the same snap (e.g. parallel spread workers
+	// sharing a bind-mounted /var/lib/snapd/snaps cache) don't write
+	// to the same inode and step on each other's atomic rename.
+	w, err := os.CreateTemp(filepath.Dir(targetPath), filepath.Base(targetPath)+".*.partial")
 	if err != nil {
+		return err
+	}
+	if err := os.Chmod(w.Name(), 0600); err != nil {
+		w.Close()
 		return err
 	}
 	resume, err := w.Seek(0, io.SeekEnd)
@@ -190,9 +197,9 @@ func (s *Store) Download(ctx context.Context, name string, targetPath string, do
 	}()
 
 	if resume > 0 {
-		logger.Debugf("Resuming download of %q at %d.", partialPath, resume)
+		logger.Debugf("Resuming download of %q at %d.", w.Name(), resume)
 	} else {
-		logger.Debugf("Starting download of %q.", partialPath)
+		logger.Debugf("Starting download of %q.", w.Name())
 	}
 
 	url := downloadInfo.DownloadURL

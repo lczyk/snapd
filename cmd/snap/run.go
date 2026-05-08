@@ -135,10 +135,15 @@ func buildRunEnv(info *snap.Info, app *snap.AppInfo, mountDir, snapName, rev str
 		env["SNAP_REAL_HOME"] = home
 	}
 
-	// PATH gets the base snap's standard bin dirs prepended so the snap
-	// can shell out to common utilities without depending on the host's
-	// /usr/bin (the bare container has nothing but /snap).
-	if base := info.Base; base != "" && base != "none" && base != "bare" {
+	// PATH + LD_LIBRARY_PATH point at the base snap's libs and bins so
+	// dynamically-linked snap binaries resolve their libc / libssl /
+	// etc., and shebangs find /bin/sh + standard utilities. but: if the
+	// host owns /lib/<triplet> as a real dir (= ubuntu container running
+	// the spread tests, not the production scratch image where wireBaseFs
+	// symlinks it to the base snap), skip both overrides. otherwise the
+	// host's /bin/sh gets paired with core22's libc.so.6 and crashes on
+	// glibc-private symbol mismatch. trust the host's own userland.
+	if base := info.Base; base != "" && base != "none" && base != "bare" && !hostHasOwnUserland() {
 		baseRoot := filepath.Join("/snap", base, "current")
 		env["LD_LIBRARY_PATH"] = strings.Join([]string{
 			filepath.Join(baseRoot, "usr/lib", multiarchTriplet()),
@@ -199,6 +204,21 @@ func mapToEnv(m map[string]string) []string {
 		out = append(out, k+"="+v)
 	}
 	return out
+}
+
+// hostHasOwnUserland returns true when /lib/<triplet> exists as a
+// real directory rather than a symlink (or missing). the production
+// scratch container has nothing under /lib until wireBaseFs symlinks
+// the base snap's userland in; an ubuntu host has glibc + friends
+// already. when true, snap run trusts the host's userland and skips
+// the base-snap LD_LIBRARY_PATH / PATH overrides, which would
+// otherwise pair the host's /bin/sh against the base snap's libc.
+func hostHasOwnUserland() bool {
+	st, err := os.Lstat(filepath.Join("/lib", multiarchTriplet()))
+	if err != nil {
+		return false
+	}
+	return st.Mode()&os.ModeSymlink == 0 && st.IsDir()
 }
 
 // multiarchTriplet maps the dpkg arch to the multiarch lib subdir

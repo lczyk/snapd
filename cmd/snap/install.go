@@ -409,10 +409,23 @@ func wireBins(info *snap.Info, _ string) error {
 //     exec because their hardcoded ELF interpreter (/lib/ld-linux-*
 //     or /lib64/ld-linux-*) doesn't exist
 //   - shebang scripts (#!/bin/sh ...) fail for the same reason
+//
+// noop when /lib/<triplet> exists as a real dir (= host already has
+// its own userland, e.g. the ubuntu container our spread tests run
+// in). mixing the host's libs with a base snap's ld.so is a recipe
+// for glibc-private symbol mismatches; the host's userland is
+// already consistent, leave it.
 func wireBaseFs(info *snap.Info, _ string) error {
+	if hostHasOwnUserland() {
+		return nil
+	}
 	baseRoot := filepath.Join("/snap", info.SnapName(), "current")
 
-	// idempotent symlink: rm + ln -s
+	// idempotent-ish symlink: rm + ln -s, but leave real (non-symlink)
+	// paths alone. on a scratch host the targets don't exist so the
+	// symlinks are created; on a host with its own userland (e.g. the
+	// ubuntu container our spread tests use) the real /lib/<triplet>
+	// already has glibc, so we skip rather than fail with "file exists".
 	link := func(target, linkPath string) error {
 		if _, err := os.Stat(target); err != nil {
 			// target not present in this base -- skip silently;
@@ -423,7 +436,14 @@ func wireBaseFs(info *snap.Info, _ string) error {
 		if err := os.MkdirAll(filepath.Dir(linkPath), 0755); err != nil {
 			return err
 		}
-		_ = os.Remove(linkPath)
+		if existing, err := os.Lstat(linkPath); err == nil {
+			if existing.Mode()&os.ModeSymlink == 0 {
+				// real file / dir already there; host has its own
+				// userland. don't clobber.
+				return nil
+			}
+			_ = os.Remove(linkPath)
+		}
 		return os.Symlink(target, linkPath)
 	}
 

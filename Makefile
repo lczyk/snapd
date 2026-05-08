@@ -142,17 +142,25 @@ spread-image:  ## Build the sshd image used by the spread adhoc backend
 		-f tests/spread/images/Dockerfile.sshd-noble \
 		--platform linux/$(ROCK_ARCH) .
 
+# spread's filter rejects trailing slashes ("nothing matches provider
+# filter"). pass the bare task path without the trailing /.
+LEAN_TASKS := \
+	tests/spread/integration/install \
+	tests/spread/integration/channel \
+	tests/spread/integration/sideload \
+	tests/spread/integration/list-remove
+
 .PHONY: spread
 spread: build spread-image  ## Run the lean spread tasks (install + channel + sideload + list-remove)
-	spread tests/spread/integration/install/ tests/spread/integration/channel/ tests/spread/integration/sideload/ tests/spread/integration/list-remove/
+	spread $(LEAN_TASKS)
 
 .PHONY: spread-extended
 spread-extended: build spread-image  ## Run the extended install task
-	spread tests/spread/integration/install-extended/
+	spread tests/spread/integration/install-extended
 
 .PHONY: spread-debug
 spread-debug: build spread-image  ## Run spread w/ -debug -v (drops to shell on failure)
-	spread -debug -v tests/spread/integration/install/ tests/spread/integration/channel/ tests/spread/integration/sideload/ tests/spread/integration/list-remove/
+	spread -debug -v $(LEAN_TASKS)
 
 .PHONY: spread-list
 spread-list:  ## List all discovered spread tasks

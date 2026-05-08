@@ -8,4 +8,10 @@ variants:
   - kubectl
   - helm
   - chisel
+  - rustup
+  - micro
+  - shellcheck
+  - nvim
+  - hugo
+  - go
 execute: bash ./test_${SPREAD_VARIANT}.sh

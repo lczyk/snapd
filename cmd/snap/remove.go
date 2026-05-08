@@ -49,12 +49,17 @@ func removeOne(name string) error {
 		return err
 	}
 
-	// per-snap data dirs and download cache. ignore missing.
+	// per-snap data dirs and download cache. ignore missing. require
+	// both the "<name>_" prefix AND the ".snap" suffix so we don't
+	// also zap in-flight ".partial" files of other concurrent
+	// downloaders that happen to share /var/lib/snapd/snaps via a
+	// bind mount (e.g. parallel spread workers).
 	_ = os.RemoveAll(filepath.Join("/var/snap", name))
 	if dirEntries, err := os.ReadDir("/var/lib/snapd/snaps"); err == nil {
 		for _, e := range dirEntries {
-			if matchesPrefix(e.Name(), name+"_") {
-				_ = os.Remove(filepath.Join("/var/lib/snapd/snaps", e.Name()))
+			n := e.Name()
+			if matchesPrefix(n, name+"_") && filepath.Ext(n) == ".snap" {
+				_ = os.Remove(filepath.Join("/var/lib/snapd/snaps", n))
 			}
 		}
 	}

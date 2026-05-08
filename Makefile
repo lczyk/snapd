@@ -11,13 +11,57 @@ help:  ## Show this help
 build:  ## Cross-compile the snap binary
 	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) go build -o ./bin/snap ./cmd/snap
 
-.PHONY: docker
-docker:  ## Build the bare snap-poc Docker image
-	docker build -t snap-poc .
+DOCKER_IMAGE     := snap-poc
+DOCKER_CONTAINER := snap-poc
+DOCKER_VOLUME    := snap-poc-state
 
-.PHONY: shell
-shell: docker  ## Build and drop into an interactive shell
-	docker run --rm -it snap-poc /bin/sh
+# state goes into named docker volumes mounted at /snap (extracted
+# snaps), /var/snap (per-snap data), /var/lib/snapd (assertion db +
+# cached downloads). same shape as the rock targets, just docker.
+
+DOCKER_VOLUMES := \
+	-v $(DOCKER_VOLUME)-snap:/snap \
+	-v $(DOCKER_VOLUME)-varsnap:/var/snap \
+	-v $(DOCKER_VOLUME)-snapd:/var/lib/snapd
+
+.PHONY: docker
+docker:  ## Build the snap-poc docker image
+	docker build -t $(DOCKER_IMAGE) .
+
+.PHONY: docker-install
+docker-install: docker  ## Run \`snap install <SNAP>\` in docker
+	@if [ -z "$(SNAP)" ]; then echo 'usage: make docker-install SNAP=<name>' >&2; exit 1; fi
+	docker run --rm $(DOCKER_VOLUMES) $(DOCKER_IMAGE) install $(SNAP)
+
+.PHONY: docker-shell
+docker-shell: docker  ## Drop into a shell in docker (state persists across runs)
+	-docker rm -f $(DOCKER_CONTAINER) >/dev/null 2>&1
+	@# bootstrap a base snap so /bin/sh exists. idempotent thanks to
+	@# the persistent volume + the install path's already-installed
+	@# short-circuit.
+	docker run --rm $(DOCKER_VOLUMES) $(DOCKER_IMAGE) install $(or $(BASE),core22)
+	docker run -d --name $(DOCKER_CONTAINER) $(DOCKER_VOLUMES) \
+		--entrypoint /bin/sh $(DOCKER_IMAGE) -c 'sleep infinity'
+	-docker exec -it $(DOCKER_CONTAINER) /bin/sh
+	docker rm -f $(DOCKER_CONTAINER) >/dev/null 2>&1
+
+.PHONY: docker-up
+docker-up: docker  ## Start the docker container detached (state-persisting)
+	-docker rm -f $(DOCKER_CONTAINER) >/dev/null 2>&1
+	docker run -d --name $(DOCKER_CONTAINER) $(DOCKER_VOLUMES) \
+		--entrypoint /bin/sh $(DOCKER_IMAGE) -c 'sleep infinity'
+
+.PHONY: docker-down
+docker-down:  ## Stop and remove the docker container (volumes kept)
+	-docker rm -f $(DOCKER_CONTAINER) >/dev/null 2>&1
+
+.PHONY: docker-wipe
+docker-wipe: docker-down  ## Stop the container and delete its state volumes
+	-docker volume rm -f $(DOCKER_VOLUME)-snap $(DOCKER_VOLUME)-varsnap $(DOCKER_VOLUME)-snapd >/dev/null 2>&1
+
+.PHONY: docker-clean
+docker-clean: docker-wipe  ## Remove image + state volumes
+	-docker rmi -f $(DOCKER_IMAGE) >/dev/null 2>&1
 
 ROCK_NAME    := snap-rock
 ROCK_VERSION := 0.1

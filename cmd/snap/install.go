@@ -24,15 +24,60 @@ import (
 )
 
 func cmdInstall(args []string) error {
+	channel, args := extractChannel(args)
 	if len(args) == 0 {
 		return fmt.Errorf("install needs a snap name")
 	}
 	for _, name := range args {
-		if err := installOne(name); err != nil {
+		if err := installOne(name, channel); err != nil {
 			return fmt.Errorf("install %s: %w", name, err)
 		}
 	}
 	return nil
+}
+
+// extractChannel pulls --channel=<x> / --channel <x> out of args and
+// returns the channel + the remaining positional args. unknown flags
+// are passed through (cli surface is small enough that we don't need
+// a full flag library).
+func extractChannel(args []string) (string, []string) {
+	var ch string
+	out := make([]string, 0, len(args))
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		switch {
+		case strings.HasPrefix(a, "--channel="):
+			ch = strings.TrimPrefix(a, "--channel=")
+		case a == "--channel" && i+1 < len(args):
+			ch = args[i+1]
+			i++
+		default:
+			out = append(out, a)
+		}
+	}
+	return ch, out
+}
+
+// channelPath holds the channel a snap was last installed / refreshed
+// from, so a subsequent `snap refresh` w/out an explicit --channel
+// stays on the same track.
+func channelPath(name string) string {
+	return filepath.Join("/snap", name, ".channel")
+}
+
+func saveChannel(name, channel string) error {
+	if channel == "" {
+		return nil
+	}
+	return os.WriteFile(channelPath(name), []byte(channel+"\n"), 0644)
+}
+
+func readChannel(name string) string {
+	b, err := os.ReadFile(channelPath(name))
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(b))
 }
 
 // installOne does the fetch + unsquash + base-recursion + bin-wire dance
@@ -44,7 +89,7 @@ func cmdInstall(args []string) error {
 // sideload: skip the store and assertion verification, parse the
 // snap.yaml from the local file, extract under a synthetic xN
 // revision so it doesn't collide with store-fetched revs.
-func installOne(name string) error {
+func installOne(name, channel string) error {
 	if strings.HasSuffix(name, ".snap") {
 		if _, err := os.Stat(name); err == nil {
 			return installLocal(name)
@@ -53,7 +98,7 @@ func installOne(name string) error {
 	st := store.New(nil, nil)
 	ctx := context.Background()
 
-	info, err := st.SnapInfo(ctx, store.SnapSpec{Name: name}, nil)
+	info, err := storeInfoForChannel(ctx, st, name, channel)
 	if err != nil {
 		return fmt.Errorf("fetch info: %w", err)
 	}
@@ -119,10 +164,14 @@ func installOne(name string) error {
 	if base != "" && base != "none" && base != "bare" {
 		if !isInstalled(base) {
 			fmt.Printf("installing base %s\n", base)
-			if err := installOne(base); err != nil {
+			if err := installOne(base, ""); err != nil {
 				return fmt.Errorf("install base %s: %w", base, err)
 			}
 		}
+	}
+
+	if err := saveChannel(info.SnapName(), channel); err != nil {
+		return fmt.Errorf("save channel: %w", err)
 	}
 
 	if err := wireBins(installedInfo, mountDir); err != nil {
@@ -138,6 +187,30 @@ func installOne(name string) error {
 		}
 	}
 	return nil
+}
+
+// storeInfoForChannel resolves a snap.Info from the store, picking the
+// requested channel when one is given. the v2 info endpoint always
+// returns latest/stable as ChannelMap[0]; for any other channel we
+// have to go through SnapAction with action=install, which the store
+// resolves against the requested channel and hands back a snap.Info
+// pointing at the right revision + download url.
+func storeInfoForChannel(ctx context.Context, st *store.Store, name, channel string) (*snap.Info, error) {
+	if channel == "" {
+		return st.SnapInfo(ctx, store.SnapSpec{Name: name}, nil)
+	}
+	sars, _, err := st.SnapAction(ctx, nil, []*store.SnapAction{{
+		Action:       "install",
+		InstanceName: name,
+		Channel:      channel,
+	}}, nil, nil, nil)
+	if err != nil {
+		return nil, err
+	}
+	if len(sars) == 0 || sars[0].Info == nil {
+		return nil, fmt.Errorf("no result for %s on channel %s", name, channel)
+	}
+	return sars[0].Info, nil
 }
 
 func download(ctx context.Context, st *store.Store, info *snap.Info) error {
@@ -234,7 +307,7 @@ func installLocal(snapPath string) error {
 	if base := info.Base; base != "" && base != "none" && base != "bare" {
 		if !isInstalled(base) {
 			fmt.Printf("installing base %s\n", base)
-			if err := installOne(base); err != nil {
+			if err := installOne(base, ""); err != nil {
 				return fmt.Errorf("install base %s: %w", base, err)
 			}
 		}

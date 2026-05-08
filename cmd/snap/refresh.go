@@ -13,6 +13,7 @@ import (
 )
 
 func cmdRefresh(args []string) error {
+	channel, args := extractChannel(args)
 	if len(args) == 0 {
 		// refresh everything under /snap/, skipping bin
 		entries, err := os.ReadDir("/snap")
@@ -40,7 +41,14 @@ func cmdRefresh(args []string) error {
 		if !isInstalled(name) {
 			return fmt.Errorf("refresh %s: not installed", name)
 		}
-		if err := installOne(name); err != nil {
+		// without an explicit --channel, stay on whatever channel the
+		// snap was last installed / refreshed from. falls through to
+		// latest/stable when nothing was recorded.
+		ch := channel
+		if ch == "" {
+			ch = readChannel(name)
+		}
+		if err := installOne(name, ch); err != nil {
 			return fmt.Errorf("refresh %s: %w", name, err)
 		}
 	}

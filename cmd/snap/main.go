@@ -27,9 +27,11 @@ func init() {
 const usage = `snap -- minimal install / run prototype
 
 usage:
-  snap install <name>...  fetch each <name> from the store, verify
+  snap install [--channel=<chan>] <name>...
+                          fetch each <name> from the store, verify
                           assertions, extract to /snap/<name>/<rev>/
-                          and wire up /snap/bin/<app> shims
+                          and wire up /snap/bin/<app> shims. without
+                          --channel, tracks latest/stable.
   snap run <name>[.<app>] [args...]
                           run the named app from an installed snap
                           with the right env. invoking via the
@@ -37,11 +39,12 @@ usage:
                           implicitly.
   snap remove <name>...   delete /snap/<name>, /var/snap/<name>,
                           the cached download, and the shims
-  snap refresh [<name>...]
+  snap refresh [--channel=<chan>] [<name>...]
                           re-install each <name> at the latest
-                          revision in the store; with no args,
-                          refresh every installed snap. old
-                          revisions are pruned automatically.
+                          revision; with no args, refresh every
+                          installed snap. without --channel, stays
+                          on the channel each snap was installed
+                          from. old revisions are pruned automatically.
   snap list               show what's installed under /snap/
   snap info <name>...     print snap metadata; falls back to the
                           store if not installed locally

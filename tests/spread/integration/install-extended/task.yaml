@@ -7,4 +7,5 @@ variants:
   - terraform
   - kubectl
   - helm
+  - chisel
 execute: bash ./test_${SPREAD_VARIANT}.sh

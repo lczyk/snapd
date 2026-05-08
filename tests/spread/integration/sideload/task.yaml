@@ -1,0 +1,2 @@
+summary: install from a local .snap file
+execute: bash ./test.sh

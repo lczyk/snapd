@@ -1,0 +1,7 @@
+summary: install + smoke-test the lean snap set
+variants:
+  - hello-world
+  - jq
+  - htop
+  - btop
+execute: bash ./test_${SPREAD_VARIANT}.sh

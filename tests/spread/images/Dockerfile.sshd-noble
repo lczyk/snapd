@@ -1,0 +1,25 @@
+# ubuntu noble + openssh-server, used by spread's adhoc backend to run
+# integration tests against the snap binary. spread needs ssh; the
+# production scratch image does not have it. so the test container is
+# this richer ubuntu host with the binary copied in via prepare.
+#
+# build for arm64:
+#   docker build -t snap-spread-sshd-noble-arm64 \
+#     -f tests/spread/images/Dockerfile.sshd-noble \
+#     --platform linux/arm64 .
+# build for amd64:
+#   docker build -t snap-spread-sshd-noble-amd64 \
+#     -f tests/spread/images/Dockerfile.sshd-noble \
+#     --platform linux/amd64 .
+
+FROM ubuntu:24.04
+
+RUN apt-get update && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y openssh-server && \
+    mkdir /var/run/sshd || true && \
+    echo 'root:snap-test' | chpasswd && \
+    echo "PermitRootLogin yes" >> /etc/ssh/sshd_config && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
+
+EXPOSE 22
+CMD ["/usr/sbin/sshd", "-D"]

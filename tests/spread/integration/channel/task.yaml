@@ -1,0 +1,6 @@
+summary: --channel flag and persistence
+variants:
+  - install-edge
+  - refresh-stays
+  - refresh-switches
+execute: bash ./test_${SPREAD_VARIANT}.sh

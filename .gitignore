@@ -125,3 +125,7 @@ cmd/test-driver
 
 # build output
 /bin/
+
+# spread harness
+/tests/spread/.cache/
+/.spread-worker-num

@@ -1,0 +1,45 @@
+project: snap
+
+# project tree gets synced into the test container at this path. our
+# binary lives at $PROJECT_PATH/bin/snap; project-level prepare copies
+# it to /usr/bin/snap (outside the per-task wipe zone).
+path: /snap-test
+
+environment:
+  PROJECT_PATH: /snap-test
+
+# .git is ~300 MB and irrelevant to tests. .cache holds the host-side
+# blob cache that bind-mounts into the container -- syncing it would
+# defeat the cache. rock + docs are heavy and untouched by tests.
+exclude:
+  - .git
+  - rock
+  - tests/spread/.cache
+  - docs
+
+backends:
+  custom-docker:
+    type: adhoc
+    allocate: source tests/spread/scripts/allocate.sh
+    discard: source tests/spread/scripts/discard.sh
+    systems:
+      - noble-arm64:
+          username: root
+          password: snap-test
+          workers: 4
+
+# runs once per allocated system after sync. drops the prebuilt
+# binary into /usr/bin/snap so tests can just call `snap`.
+prepare: |
+  install -m 0755 $PROJECT_PATH/bin/snap /usr/bin/snap
+
+# wipe between every task. /var/lib/snapd/snaps is *not* in the wipe
+# list -- it's a bind mount of the host cache, blobs persist there
+# across tasks + runs and only ever get refreshed when a snap revision
+# bumps in the store.
+restore-each: |
+  rm -rf /snap/* /var/snap/* /var/lib/snapd/state* /var/lib/snapd/assertions
+
+suites:
+  tests/spread/integration/:
+    summary: integration tests for the snap binary

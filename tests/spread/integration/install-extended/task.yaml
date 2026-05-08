@@ -1,0 +1,10 @@
+summary: install + smoke-test the extended snap set
+variants:
+  - yq
+  - tree
+  - hello
+  - ngrok
+  - terraform
+  - kubectl
+  - helm
+execute: bash ./test_${SPREAD_VARIANT}.sh

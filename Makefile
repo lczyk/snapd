@@ -134,6 +134,37 @@ rock-clean:  ## Remove built rock artefacts
 	rm -rf rock/_stage rock/*.rock
 	cd rock && rockcraft clean || true
 
+SPREAD_IMAGE := snap-spread-sshd-noble-$(ROCK_ARCH)
+
+.PHONY: spread-image
+spread-image:  ## Build the sshd image used by the spread adhoc backend
+	docker build -t $(SPREAD_IMAGE) \
+		-f tests/spread/images/Dockerfile.sshd-noble \
+		--platform linux/$(ROCK_ARCH) .
+
+.PHONY: spread
+spread: build spread-image  ## Run the lean spread tasks (install + channel + sideload + list-remove)
+	spread tests/spread/integration/install/ tests/spread/integration/channel/ tests/spread/integration/sideload/ tests/spread/integration/list-remove/
+
+.PHONY: spread-extended
+spread-extended: build spread-image  ## Run the extended install task
+	spread tests/spread/integration/install-extended/
+
+.PHONY: spread-debug
+spread-debug: build spread-image  ## Run spread w/ -debug -v (drops to shell on failure)
+	spread -debug -v tests/spread/integration/install/ tests/spread/integration/channel/ tests/spread/integration/sideload/ tests/spread/integration/list-remove/
+
+.PHONY: spread-list
+spread-list:  ## List all discovered spread tasks
+	spread -list
+
+.PHONY: spread-clean
+spread-clean:  ## Remove spread containers, image, blob cache, and worker counter
+	-docker ps -a --filter "name=snap-spread-" --format "{{.ID}}" | xargs -r docker rm -f
+	-docker images --filter=reference='snap-spread-sshd-*' --format "{{.ID}}" | xargs -r docker rmi -f
+	rm -rf tests/spread/.cache
+	rm -f .spread-worker-num .spread-reuse.yaml
+
 .PHONY: clean
 clean:  ## Remove built binaries
 	rm -rf ./bin

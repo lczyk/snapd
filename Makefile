@@ -134,6 +134,13 @@ rock-clean:  ## Remove built rock artefacts
 	rm -rf rock/_stage rock/*.rock
 	cd rock && rockcraft clean || true
 
+.PHONY: unit
+unit:  ## Run go unit tests across all packages with the race detector
+	go test -race ./...
+
+.PHONY: test
+test: unit spread  ## Run unit + spread tests
+
 SPREAD_IMAGE := snap-spread-sshd-noble-$(ROCK_ARCH)
 
 .PHONY: spread-image

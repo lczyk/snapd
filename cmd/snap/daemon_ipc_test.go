@@ -53,10 +53,10 @@ func TestParseServiceTarget(t *testing.T) {
 
 func TestSupervisorPaths(t *testing.T) {
 	cases := []struct {
-		snap, svc  string
-		wantPid    string
-		wantSock   string
-		wantLog    string
+		snap, svc string
+		wantPid   string
+		wantSock  string
+		wantLog   string
 	}{
 		{
 			"foo", "bar",

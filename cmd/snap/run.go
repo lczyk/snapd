@@ -105,8 +105,8 @@ func cmdRun(args []string) error {
 }
 
 func splitTarget(s string) (snapName, appName string) {
-	if i := strings.IndexByte(s, '.'); i >= 0 {
-		return s[:i], s[i+1:]
+	if before, after, ok := strings.Cut(s, "."); ok {
+		return before, after
 	}
 	return s, ""
 }

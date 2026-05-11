@@ -12,7 +12,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -180,7 +179,7 @@ func installOne(name, channel string) error {
 		return fmt.Errorf("save channel: %w", err)
 	}
 
-	if err := wireBins(installedInfo, mountDir); err != nil {
+	if err := wireBins(installedInfo); err != nil {
 		return fmt.Errorf("wire /snap/bin shims: %w", err)
 	}
 	// base / os snaps own the userland everything else needs (libc,
@@ -188,7 +187,7 @@ func installOne(name, channel string) error {
 	// host paths so dynamic snap binaries can resolve their ELF
 	// interpreter and shebangs work.
 	if t := installedInfo.Type(); t == snap.TypeOS || t == snap.TypeBase {
-		if err := wireBaseFs(installedInfo, mountDir); err != nil {
+		if err := wireBaseFs(installedInfo); err != nil {
 			return fmt.Errorf("wire base fs: %w", err)
 		}
 	}
@@ -322,11 +321,11 @@ func installLocal(snapPath string) error {
 		}
 	}
 
-	if err := wireBins(info, mountDir); err != nil {
+	if err := wireBins(info); err != nil {
 		return fmt.Errorf("wire /snap/bin shims: %w", err)
 	}
 	if t := info.Type(); t == snap.TypeOS || t == snap.TypeBase {
-		if err := wireBaseFs(info, mountDir); err != nil {
+		if err := wireBaseFs(info); err != nil {
 			return fmt.Errorf("wire base fs: %w", err)
 		}
 	}
@@ -406,7 +405,7 @@ func pruneOldRevisions(info *snap.Info) error {
 // shim ends up in cmdRun, which sets up env and execs the real app.
 // this binary itself must live at /usr/bin/snap; if the user installed
 // it elsewhere, set SNAP_SELF to point at it.
-func wireBins(info *snap.Info, _ string) error {
+func wireBins(info *snap.Info) error {
 	if err := os.MkdirAll(snapBinDir, 0755); err != nil {
 		return err
 	}
@@ -445,7 +444,7 @@ func wireBins(info *snap.Info, _ string) error {
 // in). mixing the host's libs with a base snap's ld.so is a recipe
 // for glibc-private symbol mismatches; the host's userland is
 // already consistent, leave it.
-func wireBaseFs(info *snap.Info, _ string) error {
+func wireBaseFs(info *snap.Info) error {
 	if hostHasOwnUserland() {
 		return nil
 	}
@@ -562,6 +561,3 @@ func wireBaseFs(info *snap.Info, _ string) error {
 	return nil
 }
 
-// io.Discard placeholder so the import isn't dropped if I add a
-// Reader path later.
-var _ = io.Discard

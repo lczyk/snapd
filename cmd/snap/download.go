@@ -19,7 +19,6 @@ import (
 	"github.com/snapcore/snapd/asserts"
 	"github.com/snapcore/snapd/asserts/sysdb"
 	"github.com/snapcore/snapd/progress"
-	"github.com/snapcore/snapd/snap"
 	"github.com/snapcore/snapd/store"
 )
 
@@ -100,7 +99,7 @@ func cmdDownload(args []string) error {
 	pbar.Finished()
 
 	fmt.Printf("Fetching assertions for %q\n", info.SnapName())
-	if err := writeAssertions(st, info, snapDest, assertDest); err != nil {
+	if err := writeAssertions(st, snapDest, assertDest); err != nil {
 		return fmt.Errorf("fetch assertions: %w", err)
 	}
 
@@ -112,7 +111,7 @@ func cmdDownload(args []string) error {
 // writeAssertions fetches the snap-revision assertion chain for the
 // downloaded snap and writes all assertions to assertDest as a
 // newline-separated assertion stream (same format as real snap download).
-func writeAssertions(s *store.Store, _ *snap.Info, snapPath, assertDest string) error {
+func writeAssertions(s *store.Store, snapPath, assertDest string) error {
 	hash, _, err := asserts.SnapFileSHA3_384(snapPath)
 	if err != nil {
 		return fmt.Errorf("hash snap: %w", err)

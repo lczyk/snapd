@@ -17,6 +17,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/snapcore/snapd/snap"
 )
@@ -143,22 +144,11 @@ func run(invokedAs string, args []string) error {
 // matching is by directory rather than basename so renaming the
 // real binary to `snap` doesn't get treated as a shim for itself.
 func shimName(invokedAs string) string {
-	dir, base := filepathSplit(invokedAs)
+	dir, base := filepath.Split(invokedAs)
+	// filepath.Split leaves a trailing slash on dir; trim it.
+	dir = dir[:len(dir)-1]
 	if dir != snapBinDir {
 		return ""
 	}
 	return base
-}
-
-// filepathSplit avoids importing path/filepath here just for a
-// trivial split. argv[0] under /snap/bin is always /snap/bin/<x>
-// (the symlinks the install path creates), so a manual rsplit on
-// '/' is enough.
-func filepathSplit(p string) (dir, base string) {
-	for i := len(p) - 1; i >= 0; i-- {
-		if p[i] == '/' {
-			return p[:i], p[i+1:]
-		}
-	}
-	return "", p
 }

@@ -96,7 +96,7 @@ func cmdRevert(args []string) error {
 		return fmt.Errorf("parse snap.yaml: %w", err)
 	}
 
-	if err := wireBins(info, mountDir); err != nil {
+	if err := wireBins(info); err != nil {
 		return fmt.Errorf("wire bins: %w", err)
 	}
 	if err := startDaemonsForSnap(info); err != nil {

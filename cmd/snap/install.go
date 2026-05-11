@@ -65,7 +65,7 @@ func extractFlags(args []string) (string, []string) {
 // from, so a subsequent `snap refresh` w/out an explicit --channel
 // stays on the same track.
 func channelPath(name string) string {
-	return filepath.Join("/snap", name, ".channel")
+	return filepath.Join(snapMountDir, name, ".channel")
 }
 
 func saveChannel(name, channel string) error {
@@ -106,22 +106,25 @@ func installOne(name, channel string) error {
 		return fmt.Errorf("fetch info: %w", err)
 	}
 
-	mountDir := filepath.Join("/snap", info.SnapName(), info.Revision.String())
+	mountDir := filepath.Join(snapMountDir, info.SnapName(), info.Revision.String())
 	if _, statErr := os.Stat(filepath.Join(mountDir, "meta", "snap.yaml")); statErr == nil {
 		fmt.Printf("%s %s already installed at %s\n", info.SnapName(), info.Revision, mountDir)
 	} else {
-		if err := download(ctx, st, info); err != nil {
-			return err
+		snapPath := snapDownloadPath(info)
+		if _, err := os.Stat(snapPath); err != nil {
+			// .snap not in download cache -- fetch from store
+			if err := download(ctx, st, info); err != nil {
+				return err
+			}
 		}
 		fmt.Printf("verifying assertions for %s\n", info.SnapName())
-		if err := verifyAssertions(st, info, snapDownloadPath(info)); err != nil {
+		if err := verifyAssertions(st, info, snapPath); err != nil {
 			// don't leave the unverified .snap on disk -- a future
-			// install attempt would skip the download (sha cache hit
-			// in store.Download) and pick up the bad blob.
-			_ = os.Remove(snapDownloadPath(info))
+			// install attempt would pick up the bad blob.
+			_ = os.Remove(snapPath)
 			return fmt.Errorf("verify: %w", err)
 		}
-		if err := extractTo(snapDownloadPath(info), mountDir); err != nil {
+		if err := extractTo(snapPath, mountDir); err != nil {
 			return err
 		}
 		fmt.Printf("installed %s %s -> %s\n", info.SnapName(), info.Revision, mountDir)
@@ -233,7 +236,7 @@ func download(ctx context.Context, st *store.Store, info *snap.Info) error {
 }
 
 func snapDownloadPath(info *snap.Info) string {
-	return filepath.Join("/var/lib/snapd/snaps",
+	return filepath.Join(snapDownloadDir,
 		fmt.Sprintf("%s_%s.snap", info.SnapName(), info.Revision))
 }
 
@@ -252,7 +255,7 @@ func extractTo(snapPath, mountDir string) error {
 // uses an atomic rename of a temp symlink so concurrent installs of
 // the same snap don't see a half-broken pointer.
 func updateCurrent(info *snap.Info) error {
-	parent := filepath.Join("/snap", info.SnapName())
+	parent := filepath.Join(snapMountDir, info.SnapName())
 	cur := filepath.Join(parent, "current")
 	tmp := filepath.Join(parent, ".current.new")
 	_ = os.Remove(tmp)
@@ -263,7 +266,7 @@ func updateCurrent(info *snap.Info) error {
 }
 
 func isInstalled(name string) bool {
-	_, err := os.Stat(filepath.Join("/snap", name, "current", "meta", "snap.yaml"))
+	_, err := os.Stat(filepath.Join(snapMountDir, name, "current", "meta", "snap.yaml"))
 	return err == nil
 }
 
@@ -295,7 +298,7 @@ func installLocal(snapPath string) error {
 		return err
 	}
 	info.Revision = rev
-	mountDir := filepath.Join("/snap", info.SnapName(), rev.String())
+	mountDir := filepath.Join(snapMountDir, info.SnapName(), rev.String())
 
 	if err := extractTo(abs, mountDir); err != nil {
 		return err
@@ -336,7 +339,7 @@ func installLocal(snapPath string) error {
 // nextLocalRevision returns x1, x2, ... -- the next available
 // sideload revision tag for /snap/<name>/.
 func nextLocalRevision(name string) (snap.Revision, error) {
-	entries, err := os.ReadDir(filepath.Join("/snap", name))
+	entries, err := os.ReadDir(filepath.Join(snapMountDir, name))
 	if err != nil && !os.IsNotExist(err) {
 		return snap.Revision{}, err
 	}
@@ -360,7 +363,7 @@ func nextLocalRevision(name string) (snap.Revision, error) {
 // current revision. called after a fresh install / refresh so we
 // don't leak storage on each update cycle.
 func pruneOldRevisions(info *snap.Info) error {
-	parent := filepath.Join("/snap", info.SnapName())
+	parent := filepath.Join(snapMountDir, info.SnapName())
 	entries, err := os.ReadDir(parent)
 	if err != nil {
 		return err
@@ -375,7 +378,7 @@ func pruneOldRevisions(info *snap.Info) error {
 			return err
 		}
 		// also drop the cached download for the old rev.
-		_ = os.Remove(filepath.Join("/var/lib/snapd/snaps",
+		_ = os.Remove(filepath.Join(snapDownloadDir,
 			fmt.Sprintf("%s_%s.snap", info.SnapName(), n)))
 	}
 	return nil
@@ -386,7 +389,7 @@ func pruneOldRevisions(info *snap.Info) error {
 // this binary itself must live at /usr/bin/snap; if the user installed
 // it elsewhere, set SNAP_SELF to point at it.
 func wireBins(info *snap.Info, _ string) error {
-	if err := os.MkdirAll("/snap/bin", 0755); err != nil {
+	if err := os.MkdirAll(snapBinDir, 0755); err != nil {
 		return err
 	}
 	target := os.Getenv("SNAP_SELF")
@@ -396,9 +399,9 @@ func wireBins(info *snap.Info, _ string) error {
 	for appName := range info.Apps {
 		var link string
 		if appName == info.SnapName() {
-			link = filepath.Join("/snap/bin", appName)
+			link = filepath.Join(snapBinDir, appName)
 		} else {
-			link = filepath.Join("/snap/bin", info.SnapName()+"."+appName)
+			link = filepath.Join(snapBinDir, info.SnapName()+"."+appName)
 		}
 		// symlink races are easier to ignore than fight: rm first.
 		_ = os.Remove(link)
@@ -428,7 +431,7 @@ func wireBaseFs(info *snap.Info, _ string) error {
 	if hostHasOwnUserland() {
 		return nil
 	}
-	baseRoot := filepath.Join("/snap", info.SnapName(), "current")
+	baseRoot := filepath.Join(snapMountDir, info.SnapName(), "current")
 
 	// idempotent-ish symlink: rm + ln -s, but leave real (non-symlink)
 	// paths alone. on a scratch host the targets don't exist so the

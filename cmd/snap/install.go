@@ -3,7 +3,7 @@
 // (core24, core22, ...) when missing. wires up /snap/bin/<app>
 // shims pointing back at this binary so `snap run <app>` works.
 //
-// no daemon, no state file. the on-disk layout is the only state:
+// no snapd daemon, no state file. the on-disk layout is the only state:
 // the presence of /snap/<name>/<rev>/meta/snap.yaml means it's
 // installed. /snap/<name>/current symlinks the latest revision.
 

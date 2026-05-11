@@ -20,7 +20,9 @@ docker run --rm -it --device /dev/fuse --cap-add SYS_ADMIN snapd-poc bash
 
 **in scope**: install / run / remove of one strictly-confined-snap, with confinement bypassed (see q3 below). assertion verification + store interaction over the network. squashfuse-based mounts. seeding via `snap prepare-image`.
 
-**out of scope**: snap services / timers / sockets / dbus activation. apparmor + seccomp enforcement. ubuntu core boot integration, fde, recovery, gadget, kernel snaps. user session agents. multi-user. refresh / hold / channel logic beyond what `snap install` happens to exercise. rocks / rockcraft packaging (cheap follow-up once the docker version works). unit tests + spread suites (scorched-earth -- deletions take their tests with them).
+**out of scope** _(as initially planned; see note below)_: snap services / timers / sockets / dbus activation. apparmor + seccomp enforcement. ubuntu core boot integration, fde, recovery, gadget, kernel snaps. user session agents. multi-user. refresh / hold / channel logic beyond what `snap install` happens to exercise. rocks / rockcraft packaging (cheap follow-up once the docker version works). unit tests + spread suites (scorched-earth -- deletions take their tests with them).
+
+> **note:** the branch has grown beyond the original demo scope. snap services are now supported via snap-super (per-daemon supervisor processes, no systemd). refresh, channel pinning, and revert are implemented. spread integration tests exist. the items that remain truly out of scope are: apparmor/seccomp enforcement, ubuntu core boot, fde, gadget/kernel snaps, user session agents, multi-user, timers, sockets, dbus activation.
 
 ## design decisions (and why)
 

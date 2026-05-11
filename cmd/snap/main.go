@@ -1,10 +1,14 @@
-// chainsawed prototype: single-binary `snap` with `install` and `run`
-// subcommands. install fetches a snap from the store, verifies its
-// assertions, and unsquashes it under /snap/<name>/<rev>/. run reads
-// the installed snap.yaml, sets up env (incl. LD_LIBRARY_PATH from
-// the snap's declared base), and execs the app.
+// chainsawed prototype: single-binary `snap` with install / run /
+// refresh / service lifecycle subcommands. install fetches a snap from
+// the store, verifies its assertions, and unsquashes it under
+// /snap/<name>/<rev>/. run reads the installed snap.yaml, sets up env
+// (incl. LD_LIBRARY_PATH from the snap's declared base), and execs
+// the app. snap-super mode supervises snap daemons outside systemd:
+// each daemon gets its own supervisor process (snap --secret-daemon-mode
+// <snap.svc>) that forks the daemon, restarts it with exponential
+// backoff, and serves IPC commands over a unix socket.
 //
-// no daemon, no state file, no refresh, no interfaces, no confinement.
+// no snapd daemon, no state file, no interfaces, no confinement.
 // every snap is treated as classic; the container is the security
 // boundary.
 
@@ -18,9 +22,9 @@ import (
 )
 
 func init() {
-	// upstream daemon installs a real sanitiser via the interfaces
-	// package; we have no interfaces, so just no-op it -- otherwise
-	// any snap.InfoFromSnapYaml call panics.
+	// upstream snapd installs a real sanitiser via the interfaces
+	// package; we have no interface machinery, so just no-op it --
+	// otherwise any snap.InfoFromSnapYaml call panics.
 	snap.SanitizePlugsSlots = func(*snap.Info) {}
 }
 

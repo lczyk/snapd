@@ -14,6 +14,7 @@ set -eux
 SNAP=redis
 SVC=redis.server
 PID_FILE=/run/snapd/supervisors/redis.server.pid
+SOCK_FILE=/run/snapd/supervisors/redis.server.sock
 LOG_FILE=/var/log/snapd/redis.server.log
 SNAP_COMMON=/var/snap/redis/common
 
@@ -42,6 +43,15 @@ snap services | grep -q "^$SVC.*active"
 # redis binds on 6379; give it a moment then check the port
 sleep 2
 ss -tlnp | grep -q ':6379'
+pgrep -f /snap/redis/ | grep -q .
+pgrep -f "secret-daemon-mode $SVC" | grep -q .
+test -S "$SOCK_FILE"
+test -s "$LOG_FILE"
+
+# supervisor and daemon are two distinct processes
+SUPER_PID="$(cat "$PID_FILE")"
+DAEMON_PID="$(pgrep -f /snap/redis/)"
+test "$SUPER_PID" != "$DAEMON_PID"
 
 # PING -> PONG via the redis.cli shim
 snap run redis.cli ping | grep -qi 'PONG'
@@ -62,6 +72,9 @@ test ! -f "$PID_FILE"
 
 snap services | grep -q "^$SVC.*inactive"
 ! ss -tlnp | grep -q ':6379'
+! pgrep -f /snap/redis/ | grep -q .
+! pgrep -f "secret-daemon-mode $SVC" | grep -q .
+test ! -e "$SOCK_FILE"
 
 # -- start --
 
@@ -73,11 +86,15 @@ for i in $(seq 1 10); do
 done
 kill -0 "$(cat "$PID_FILE")"
 snap services | grep -q "^$SVC.*active"
+pgrep -f /snap/redis/ | grep -q .
+pgrep -f "secret-daemon-mode $SVC" | grep -q .
+test -S "$SOCK_FILE"
 sleep 1
 snap run redis.cli ping | grep -qi 'PONG'
 
 # -- restart --
 
+PRE_RESTART_SUPER_PID="$(cat "$PID_FILE")"
 snap restart "$SVC"
 
 for i in $(seq 1 10); do
@@ -86,6 +103,14 @@ for i in $(seq 1 10); do
 done
 snap services | grep -q "^$SVC.*active"
 kill -0 "$(cat "$PID_FILE")"
+pgrep -f /snap/redis/ | grep -q .
+pgrep -f "secret-daemon-mode $SVC" | grep -q .
+test -S "$SOCK_FILE"
+# supervisor pid unchanged across restart. we don't assert the daemon pid
+# changed: the os may reuse the old pid immediately, making that check
+# unreliable. the STARTS >= 2 log check below is the authoritative proof
+# that the daemon was restarted.
+test "$(cat "$PID_FILE")" = "$PRE_RESTART_SUPER_PID"
 sleep 1
 snap run redis.cli ping | grep -qi 'PONG'
 
@@ -104,4 +129,7 @@ snap services | grep -q "^$SVC.*active"
 snap remove redis
 
 test ! -f "$PID_FILE"
+! pgrep -f /snap/redis/ | grep -q .
+! pgrep -f "secret-daemon-mode $SVC" | grep -q .
+test ! -e "$SOCK_FILE"
 test ! -e /snap/redis

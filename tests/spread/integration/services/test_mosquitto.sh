@@ -11,6 +11,7 @@ set -eux
 SNAP=mosquitto
 SVC=mosquitto.mosquitto
 PID_FILE=/run/snapd/supervisors/mosquitto.mosquitto.pid
+SOCK_FILE=/run/snapd/supervisors/mosquitto.mosquitto.sock
 LOG_FILE=/var/log/snapd/mosquitto.mosquitto.log
 
 # -- install --
@@ -30,6 +31,15 @@ snap services | grep -q "^$SVC.*active"
 # daemon should be listening on 1883
 sleep 2
 ss -tlnp | grep -q ':1883'
+pgrep -f /snap/mosquitto/ | grep -q .
+pgrep -f "secret-daemon-mode $SVC" | grep -q .
+test -S "$SOCK_FILE"
+test -s "$LOG_FILE"
+
+# supervisor and daemon are two distinct processes
+SUPER_PID="$(cat "$PID_FILE")"
+DAEMON_PID="$(pgrep -f /snap/mosquitto/)"
+test "$SUPER_PID" != "$DAEMON_PID"
 
 # -- logs --
 
@@ -48,6 +58,9 @@ test ! -f "$PID_FILE"
 
 snap services | grep -q "^$SVC.*inactive"
 ! ss -tlnp | grep -q ':1883'
+! pgrep -f /snap/mosquitto/ | grep -q .
+! pgrep -f "secret-daemon-mode $SVC" | grep -q .
+test ! -e "$SOCK_FILE"
 
 # -- start --
 
@@ -59,11 +72,15 @@ for i in $(seq 1 10); do
 done
 kill -0 "$(cat "$PID_FILE")"
 snap services | grep -q "^$SVC.*active"
+pgrep -f /snap/mosquitto/ | grep -q .
+pgrep -f "secret-daemon-mode $SVC" | grep -q .
+test -S "$SOCK_FILE"
 
 # -- restart --
 
 # snap restart keeps snap-super running (same pid); the daemon inside
 # is stopped and re-forked. verify the service stays active after restart.
+PRE_RESTART_SUPER_PID="$(cat "$PID_FILE")"
 snap restart "$SVC"
 
 for i in $(seq 1 10); do
@@ -72,6 +89,14 @@ for i in $(seq 1 10); do
 done
 snap services | grep -q "^$SVC.*active"
 kill -0 "$(cat "$PID_FILE")"
+pgrep -f /snap/mosquitto/ | grep -q .
+pgrep -f "secret-daemon-mode $SVC" | grep -q .
+test -S "$SOCK_FILE"
+# supervisor pid unchanged across restart. we don't assert the daemon pid
+# changed: the os may reuse the old pid immediately, making that check
+# unreliable. the STARTS >= 2 log check below is the authoritative proof
+# that the daemon was restarted.
+test "$(cat "$PID_FILE")" = "$PRE_RESTART_SUPER_PID"
 
 # log should contain a second "starting" line from the restart
 sleep 2
@@ -92,6 +117,9 @@ snap remove mosquitto
 
 # pid file and log file should be gone after remove
 test ! -f "$PID_FILE"
+! pgrep -f /snap/mosquitto/ | grep -q .
+! pgrep -f "secret-daemon-mode $SVC" | grep -q .
+test ! -e "$SOCK_FILE"
 
 # snap tree should be gone
 test ! -e /snap/mosquitto

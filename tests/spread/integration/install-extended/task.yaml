@@ -14,4 +14,9 @@ variants:
   - nvim
   - hugo
   - go
+  - lazygit
+  - doctl
+  - k9s
+  - yt-dlp
+  - node
 execute: bash ./test_${SPREAD_VARIANT}.sh

@@ -13,7 +13,7 @@ import (
 )
 
 func cmdRefresh(args []string) error {
-	channel, args := extractChannel(args)
+	channel, args := extractFlags(args)
 	if len(args) == 0 {
 		// refresh everything under /snap/, skipping bin
 		entries, err := os.ReadDir("/snap")

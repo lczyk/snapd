@@ -24,7 +24,7 @@ import (
 )
 
 func cmdInstall(args []string) error {
-	channel, args := extractChannel(args)
+	channel, args := extractFlags(args)
 	if len(args) == 0 {
 		return fmt.Errorf("install needs a snap name")
 	}
@@ -36,11 +36,12 @@ func cmdInstall(args []string) error {
 	return nil
 }
 
-// extractChannel pulls --channel=<x> / --channel <x> out of args and
-// returns the channel + the remaining positional args. unknown flags
-// are passed through (cli surface is small enough that we don't need
-// a full flag library).
-func extractChannel(args []string) (string, []string) {
+// extractFlags strips recognised flags from args and returns the channel
+// value + remaining positional args. unrecognised flags are passed through
+// (cli surface is small enough that we don't need a full flag library).
+// --classic is accepted for compatibility with `snap install --classic <name>`
+// from the full snapd CLI; it is a noop here (every snap is classic).
+func extractFlags(args []string) (string, []string) {
 	var ch string
 	out := make([]string, 0, len(args))
 	for i := 0; i < len(args); i++ {
@@ -51,6 +52,8 @@ func extractChannel(args []string) (string, []string) {
 		case a == "--channel" && i+1 < len(args):
 			ch = args[i+1]
 			i++
+		case a == "--classic":
+			fmt.Fprintf(os.Stderr, "warning: --classic is accepted for compatibility but has no effect; every snap is already classic in this build\n")
 		default:
 			out = append(out, a)
 		}

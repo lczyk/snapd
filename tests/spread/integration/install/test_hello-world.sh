@@ -10,3 +10,7 @@ test -e /snap/hello-world/current/meta/snap.yaml
 test -L /snap/bin/hello-world
 
 snap run hello-world | grep -q "Hello World"
+
+# snap with no daemons: services should succeed and show empty table
+snap services | grep -q "^Service"
+! snap services | grep -q "^hello-world"

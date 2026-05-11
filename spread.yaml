@@ -30,7 +30,12 @@ backends:
 
 # runs once per allocated system after sync. drops the prebuilt
 # binary into /usr/bin/snap so tests can just call `snap`.
+# bin/snap must already exist -- run `make snap-build` first.
 prepare: |
+  if [ ! -f "$PROJECT_PATH/bin/snap" ]; then
+    echo "ERROR: bin/snap not found -- run 'make snap-build' before spread" >&2
+    exit 1
+  fi
   install -m 0755 $PROJECT_PATH/bin/snap /usr/bin/snap
 
 # wipe between every task. /var/lib/snapd/snaps is *not* in the wipe

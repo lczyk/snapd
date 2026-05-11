@@ -14,4 +14,4 @@ snap run lazygit --version | grep -qi 'commit='
 # behavioural: print resolved config dir/path. exercises real startup
 # path (config + log dirs) without entering the tui.
 snap run lazygit --print-config-dir | grep -qE '/lazygit$'
-snap run lazygit --print-default-config | grep -qi 'gui:'
+snap run lazygit --config | grep -qi 'gui:'

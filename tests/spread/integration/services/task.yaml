@@ -1,5 +1,7 @@
 summary: snap service lifecycle -- install, start, stop, restart, logs, remove
 variants:
   - mosquitto
+  - postgresql
+  - prometheus
   - redis
 execute: bash ./test_${SPREAD_VARIANT}.sh

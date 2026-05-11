@@ -101,7 +101,7 @@ func runSupervisor(target string) error {
 		}
 	}()
 
-	return supervisorLoop(info, app, concreteMount, snapName, svcName, revStr, restartCond, logOut, stopCh, restartCh)
+	return supervisorLoop(info, app, concreteMount, snapName, svcName, revStr, restartCond, logFile, logOut, stopCh, restartCh)
 }
 
 func supervisorLoop(
@@ -109,6 +109,7 @@ func supervisorLoop(
 	app *snap.AppInfo,
 	concreteMount, snapName, svcName, revStr string,
 	restartCond snap.RestartCondition,
+	logFile *os.File,
 	logOut io.Writer,
 	stopCh <-chan struct{},
 	restartCh <-chan struct{},
@@ -121,8 +122,14 @@ func supervisorLoop(
 
 	for {
 		cmd := buildDaemonCmd(info, app, concreteMount, snapName, revStr)
-		cmd.Stdout = logOut
-		cmd.Stderr = logOut
+		// NOTE: use logFile (*os.File) directly, not logOut (io.MultiWriter).
+		// with a plain file, exec sets the fd directly and cmd.Wait() returns
+		// as soon as the process exits. with an io.Writer, exec creates a pipe
+		// + copy goroutine and cmd.Wait() blocks until all processes holding
+		// the write end of that pipe exit -- including forked children of the
+		// daemon that outlive the main process (e.g. mosquitto forks a child).
+		cmd.Stdout = logFile
+		cmd.Stderr = logFile
 
 		fmt.Fprintf(logOut, "[snap-super] starting %s.%s\n", snapName, svcName)
 		startTime := time.Now()

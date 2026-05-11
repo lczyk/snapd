@@ -213,7 +213,10 @@ LEAN_TASKS := \
 	tests/spread/integration/install \
 	tests/spread/integration/channel \
 	tests/spread/integration/sideload \
-	tests/spread/integration/list-remove
+	tests/spread/integration/list-remove \
+	tests/spread/integration/version \
+	tests/spread/integration/download \
+	tests/spread/integration/revert
 
 .PHONY: spread
 spread: snap-build spread-image  ## Run the lean spread tasks (install + channel + sideload + list-remove)

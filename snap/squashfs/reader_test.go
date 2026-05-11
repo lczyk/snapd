@@ -14,9 +14,14 @@ package squashfs
 
 import (
 	"bytes"
+	"compress/zlib"
 	"encoding/binary"
+	"fmt"
 	"reflect"
 	"testing"
+
+	"github.com/klauspost/compress/zstd"
+	"github.com/ulikunitz/xz"
 )
 
 func TestReadBlockSizes(t *testing.T) {
@@ -92,6 +97,188 @@ func TestReadSuperblock(t *testing.T) {
 			t.Fatal("expected error reading short buffer, got nil")
 		}
 	})
+}
+
+// --- benchmarks ---------------------------------------------------------------
+
+func BenchmarkReadSuperblock(b *testing.B) {
+	buf := make([]byte, 96)
+	binary.LittleEndian.PutUint32(buf[0:4], 0x73717368)
+	binary.LittleEndian.PutUint32(buf[4:8], 42)
+	binary.LittleEndian.PutUint32(buf[12:16], 131072)
+	binary.LittleEndian.PutUint16(buf[20:22], 1)
+	binary.LittleEndian.PutUint64(buf[80:88], 0xdeadbeef)
+
+	b.ResetTimer()
+	for b.Loop() {
+		readSuperblock(bytes.NewReader(buf))
+	}
+}
+
+func BenchmarkSplitPath(b *testing.B) {
+	b.Run("empty", func(b *testing.B) {
+		for b.Loop() {
+			splitPath("")
+		}
+	})
+	b.Run("single", func(b *testing.B) {
+		for b.Loop() {
+			splitPath("foo")
+		}
+	})
+	b.Run("nested", func(b *testing.B) {
+		for b.Loop() {
+			splitPath("usr/share/doc/foo/bar")
+		}
+	})
+	b.Run("absolute", func(b *testing.B) {
+		for b.Loop() {
+			splitPath("/usr/share/doc/foo/bar")
+		}
+	})
+	b.Run("with-dots", func(b *testing.B) {
+		for b.Loop() {
+			splitPath("./foo/./bar/../baz")
+		}
+	})
+}
+
+func BenchmarkReadBlockSizes(b *testing.B) {
+	nBlocks := 100
+	buf := bytes.Repeat([]byte{0}, nBlocks*4)
+	for i := range nBlocks {
+		binary.LittleEndian.PutUint32(buf[i*4:], uint32(131072|0x800000))
+	}
+
+	b.Run("no-fragment", func(b *testing.B) {
+		for b.Loop() {
+			r := bytes.NewReader(buf)
+			readBlockSizes(r, uint64(nBlocks)*131072, 131072, false)
+		}
+	})
+	b.Run("with-fragment", func(b *testing.B) {
+		for b.Loop() {
+			r := bytes.NewReader(buf)
+			readBlockSizes(r, uint64(nBlocks)*131072, 131072, true)
+		}
+	})
+}
+
+// helper to build a nativeReader with given compression type for decompress benchmarks
+func makeReader(comp uint16) *nativeReader {
+	return &nativeReader{
+		sb: superblock{Compression: comp, BlockSize: 131072},
+	}
+}
+
+// generateTestPayload returns data that compresses reasonably well - a
+// mix of repeated strings and some entropy, like typical squashfs content
+// (metadata YAML, ELF headers, etc.)
+func generateTestPayload(size int) []byte {
+	parts := [][]byte{
+		[]byte(`name: hello-world
+version: "2.10"
+summary: Hello world example
+`),
+		bytes.Repeat([]byte{0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07}, 32),
+		bytes.Repeat([]byte{0x7f, 'E', 'L', 'F'}, 64),
+		bytes.Repeat([]byte("some repeated text that simulates source code or yaml content\n"), 16),
+	}
+	var buf []byte
+	for len(buf) < size {
+		for _, p := range parts {
+			buf = append(buf, p...)
+			if len(buf) >= size {
+				break
+			}
+		}
+	}
+	return buf[:size]
+}
+
+func BenchmarkDecompress(b *testing.B) {
+	payload := generateTestPayload(8192)
+
+	compressedGzip := compressGzip(payload)
+	compressedXZ := compressXZ(payload)
+	compressedZstd := compressZstd(payload)
+	b.Run("gzip-8k", func(b *testing.B) {
+		r := makeReader(compGzip)
+		b.ResetTimer()
+		for b.Loop() {
+			r.decompress(compressedGzip)
+		}
+	})
+	b.Run("xz-8k", func(b *testing.B) {
+		r := makeReader(compXz)
+		b.ResetTimer()
+		for b.Loop() {
+			r.decompress(compressedXZ)
+		}
+	})
+	b.Run("zstd-8k", func(b *testing.B) {
+		r := makeReader(compZstd)
+		b.ResetTimer()
+		for b.Loop() {
+			r.decompress(compressedZstd)
+		}
+	})
+	// larger payloads (128k), more typical of squashfs data blocks
+	bigPayload := generateTestPayload(131072)
+	bigGzip := compressGzip(bigPayload)
+	bigXZ := compressXZ(bigPayload)
+	bigZstd := compressZstd(bigPayload)
+	b.Run("gzip-128k", func(b *testing.B) {
+		r := makeReader(compGzip)
+		b.ResetTimer()
+		for b.Loop() {
+			r.decompress(bigGzip)
+		}
+	})
+	b.Run("xz-128k", func(b *testing.B) {
+		r := makeReader(compXz)
+		b.ResetTimer()
+		for b.Loop() {
+			r.decompress(bigXZ)
+		}
+	})
+	b.Run("zstd-128k", func(b *testing.B) {
+		r := makeReader(compZstd)
+		b.ResetTimer()
+		for b.Loop() {
+			r.decompress(bigZstd)
+		}
+	})
+}
+
+func compressGzip(data []byte) []byte {
+	var buf bytes.Buffer
+	w := zlib.NewWriter(&buf)
+	w.Write(data)
+	w.Close()
+	return buf.Bytes()
+}
+
+func compressXZ(data []byte) []byte {
+	var buf bytes.Buffer
+	w, err := xz.NewWriter(&buf)
+	if err != nil {
+		panic(fmt.Sprintf("xz writer: %v", err))
+	}
+	w.Write(data)
+	w.Close()
+	return buf.Bytes()
+}
+
+func compressZstd(data []byte) []byte {
+	var buf bytes.Buffer
+	w, err := zstd.NewWriter(&buf)
+	if err != nil {
+		panic(fmt.Sprintf("zstd writer: %v", err))
+	}
+	w.Write(data)
+	w.Close()
+	return buf.Bytes()
 }
 
 func TestSplitPath(t *testing.T) {

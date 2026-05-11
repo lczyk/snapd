@@ -27,7 +27,7 @@ func runSupervisor(target string) error {
 		return err
 	}
 
-	mountDir := filepath.Join("/snap", snapName, "current")
+	mountDir := filepath.Join(snapMountDir, snapName, "current")
 	yamlBytes, err := os.ReadFile(filepath.Join(mountDir, "meta", "snap.yaml"))
 	if err != nil {
 		return fmt.Errorf("read snap.yaml: %w", err)
@@ -50,7 +50,7 @@ func runSupervisor(target string) error {
 		return fmt.Errorf("readlink current: %w", err)
 	}
 	revStr := filepath.Base(revLink)
-	concreteMount := filepath.Join("/snap", snapName, revStr)
+	concreteMount := filepath.Join(snapMountDir, snapName, revStr)
 
 	// write our own pid file
 	if err := os.MkdirAll(supervisorDir, 0755); err != nil {

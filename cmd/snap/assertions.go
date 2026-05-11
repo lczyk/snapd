@@ -29,23 +29,16 @@ import (
 	"github.com/snapcore/snapd/store"
 )
 
-// assertsDBPath is where the assertion backstore lives on disk.
-// persisting it across installs means canonical's account-keys and
-// the snap-declarations we've seen are kept locally, so refresh /
-// install-base does not re-fetch the whole prereq chain over the
-// network each time.
-const assertsDBPath = "/var/lib/snapd/assertions"
-
 func verifyAssertions(s *store.Store, info *snap.Info, snapPath string) error {
 	hash, _, err := asserts.SnapFileSHA3_384(snapPath)
 	if err != nil {
 		return fmt.Errorf("hash snap: %w", err)
 	}
 
-	if err := os.MkdirAll(assertsDBPath, 0755); err != nil {
+	if err := os.MkdirAll(snapAssertsDir, 0755); err != nil {
 		return fmt.Errorf("mkdir asserts db: %w", err)
 	}
-	persistDB, err := sysdb.OpenAt(assertsDBPath)
+	persistDB, err := sysdb.OpenAt(snapAssertsDir)
 	if err != nil {
 		return fmt.Errorf("open db: %w", err)
 	}

@@ -35,7 +35,7 @@ func cmdRun(args []string) error {
 
 	snapName, appName := splitTarget(target)
 
-	mountDir := filepath.Join("/snap", snapName, "current")
+	mountDir := filepath.Join(snapMountDir, snapName, "current")
 	if _, err := os.Stat(mountDir); err != nil {
 		return fmt.Errorf("snap %q is not installed", snapName)
 	}
@@ -56,7 +56,7 @@ func cmdRun(args []string) error {
 		return fmt.Errorf("readlink current: %w", err)
 	}
 	revStr = filepath.Base(revStr)
-	concreteMount := filepath.Join("/snap", snapName, revStr)
+	concreteMount := filepath.Join(snapMountDir, snapName, revStr)
 
 	if appName == "" {
 		// pick a single sensible default if there's only one app
@@ -132,8 +132,8 @@ func buildRunEnv(info *snap.Info, app *snap.AppInfo, mountDir, snapName, rev str
 	env["SNAP_VERSION"] = info.Version
 	env["SNAP_REVISION"] = rev
 	env["SNAP_ARCH"] = arch.DpkgArchitecture()
-	env["SNAP_DATA"] = filepath.Join("/var/snap", snapName, rev)
-	env["SNAP_COMMON"] = filepath.Join("/var/snap", snapName, "common")
+	env["SNAP_DATA"] = filepath.Join(snapDataDir, snapName, rev)
+	env["SNAP_COMMON"] = filepath.Join(snapDataDir, snapName, "common")
 	if home := env["HOME"]; home != "" {
 		env["SNAP_USER_DATA"] = filepath.Join(home, "snap", snapName, rev)
 		env["SNAP_USER_COMMON"] = filepath.Join(home, "snap", snapName, "common")
@@ -149,7 +149,7 @@ func buildRunEnv(info *snap.Info, app *snap.AppInfo, mountDir, snapName, rev str
 	// host's /bin/sh gets paired with core22's libc.so.6 and crashes on
 	// glibc-private symbol mismatch. trust the host's own userland.
 	if base := info.Base; base != "" && base != "none" && base != "bare" && !hostHasOwnUserland() {
-		baseRoot := filepath.Join("/snap", base, "current")
+		baseRoot := filepath.Join(snapMountDir, base, "current")
 		env["LD_LIBRARY_PATH"] = strings.Join([]string{
 			filepath.Join(baseRoot, "usr/lib", multiarchTriplet()),
 			filepath.Join(baseRoot, "lib", multiarchTriplet()),

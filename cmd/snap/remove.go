@@ -26,7 +26,7 @@ func cmdRemove(args []string) error {
 }
 
 func removeOne(name string) error {
-	root := filepath.Join("/snap", name)
+	root := filepath.Join(snapMountDir, name)
 	if _, err := os.Stat(root); os.IsNotExist(err) {
 		return fmt.Errorf("not installed")
 	}
@@ -39,11 +39,11 @@ func removeOne(name string) error {
 	// /snap/bin and removing every link whose name starts with the
 	// snap-name (either bare for the same-named app or "<name>." for
 	// extras) covers the wireBins layout.
-	if entries, err := os.ReadDir("/snap/bin"); err == nil {
+	if entries, err := os.ReadDir(snapBinDir); err == nil {
 		for _, e := range entries {
 			n := e.Name()
 			if n == name || (len(n) > len(name)+1 && n[:len(name)] == name && n[len(name)] == '.') {
-				_ = os.Remove(filepath.Join("/snap/bin", n))
+				_ = os.Remove(filepath.Join(snapBinDir, n))
 			}
 		}
 	}
@@ -60,7 +60,7 @@ func removeOne(name string) error {
 	// /lib/snapd/snaps (parallel spread workers, shared persistent
 	// cache, ...) deleting here would race with another process's
 	// in-flight install.
-	_ = os.RemoveAll(filepath.Join("/var/snap", name))
+	_ = os.RemoveAll(filepath.Join(snapDataDir, name))
 
 	fmt.Printf("removed %s\n", name)
 	return nil

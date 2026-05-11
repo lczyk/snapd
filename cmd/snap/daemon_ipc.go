@@ -18,11 +18,6 @@ import (
 	"github.com/snapcore/snapd/snap"
 )
 
-const (
-	supervisorDir = "/run/snapd/supervisors"
-	daemonLogDir  = "/var/log/snapd"
-)
-
 func supervisorPidPath(snapName, svcName string) string {
 	return filepath.Join(supervisorDir, snapName+"."+svcName+".pid")
 }
@@ -128,7 +123,7 @@ func emergencyKill(snapName, svcName string) error {
 // declaredDaemons returns AppInfo entries for all declared daemons in
 // the snap's current snap.yaml.
 func declaredDaemons(snapName string) ([]*snap.AppInfo, error) {
-	yamlPath := filepath.Join("/snap", snapName, "current", "meta", "snap.yaml")
+	yamlPath := filepath.Join(snapMountDir, snapName, "current", "meta", "snap.yaml")
 	yamlBytes, err := os.ReadFile(yamlPath)
 	if err != nil {
 		return nil, err

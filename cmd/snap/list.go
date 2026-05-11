@@ -14,7 +14,7 @@ import (
 )
 
 func cmdList(_ []string) error {
-	entries, err := os.ReadDir("/snap")
+	entries, err := os.ReadDir(snapMountDir)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil
@@ -30,7 +30,7 @@ func cmdList(_ []string) error {
 		if !e.IsDir() || e.Name() == "bin" {
 			continue
 		}
-		yamlPath := filepath.Join("/snap", e.Name(), "current", "meta", "snap.yaml")
+		yamlPath := filepath.Join(snapMountDir, e.Name(), "current", "meta", "snap.yaml")
 		yamlBytes, err := os.ReadFile(yamlPath)
 		if err != nil {
 			continue
@@ -40,7 +40,7 @@ func cmdList(_ []string) error {
 			continue
 		}
 		// resolve revision via current symlink
-		rev, err := os.Readlink(filepath.Join("/snap", e.Name(), "current"))
+		rev, err := os.Readlink(filepath.Join(snapMountDir, e.Name(), "current"))
 		if err != nil {
 			continue
 		}

@@ -33,12 +33,12 @@ func cmdInfo(args []string) error {
 func infoOne(name string) error {
 	var local *snap.Info
 	if isInstalled(name) {
-		yamlBytes, err := os.ReadFile(filepath.Join("/snap", name, "current", "meta", "snap.yaml"))
+		yamlBytes, err := os.ReadFile(filepath.Join(snapMountDir, name, "current", "meta", "snap.yaml"))
 		if err == nil {
 			info, err := snap.InfoFromSnapYaml(yamlBytes)
 			if err == nil {
 				local = info
-				rev, _ := os.Readlink(filepath.Join("/snap", name, "current"))
+				rev, _ := os.Readlink(filepath.Join(snapMountDir, name, "current"))
 				if r, err := snap.ParseRevision(filepath.Base(rev)); err == nil {
 					info.Revision = r
 				}

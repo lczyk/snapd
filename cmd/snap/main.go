@@ -126,7 +126,7 @@ func run(invokedAs string, args []string) error {
 // real binary to `snap` doesn't get treated as a shim for itself.
 func shimName(invokedAs string) string {
 	dir, base := filepathSplit(invokedAs)
-	if dir != "/snap/bin" {
+	if dir != snapBinDir {
 		return ""
 	}
 	return base

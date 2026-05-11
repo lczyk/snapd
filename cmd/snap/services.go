@@ -12,7 +12,7 @@ import (
 )
 
 func cmdServices(_ []string) error {
-	entries, err := os.ReadDir("/snap")
+	entries, err := os.ReadDir(snapMountDir)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil

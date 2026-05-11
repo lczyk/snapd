@@ -15,7 +15,7 @@
 FROM ubuntu:24.04
 
 RUN apt-get update && \
-    DEBIAN_FRONTEND=noninteractive apt-get install -y openssh-server && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y openssh-server iproute2 && \
     mkdir /var/run/sshd || true && \
     echo 'root:snap-test' | chpasswd && \
     echo "PermitRootLogin yes" >> /etc/ssh/sshd_config && \

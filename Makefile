@@ -220,8 +220,8 @@ spread: snap-build spread-image  ## Run the lean spread tasks (install + channel
 	spread $(LEAN_TASKS)
 
 .PHONY: spread-extended
-spread-extended: snap-build spread-image  ## Run the extended install task
-	spread tests/spread/integration/install-extended
+spread-extended: snap-build spread-image  ## Run the extended install + service lifecycle tasks
+	spread tests/spread/integration/install-extended tests/spread/integration/services
 
 .PHONY: spread-debug
 spread-debug: snap-build spread-image  ## Run spread w/ -debug -v (drops to shell on failure)

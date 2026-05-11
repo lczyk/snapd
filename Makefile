@@ -3,6 +3,10 @@
 GOOS   ?= linux
 GOARCH ?= arm64
 
+## @help-group: docker
+## @help-group: rock
+## @help-group: spread
+
 help:  ## Show this help
 	@echo "Available targets:"
 	@awk ' \
@@ -13,45 +17,58 @@ help:  ## Show this help
 		} \
 		/^## @help-group:[ \t]*/ { \
 			sub(/^## @help-group:[ \t]*/, ""); \
-			group = $$0; \
-			if (!(group in seen)) { order[n++] = group; seen[group] = 1 } \
+			g = $$0; \
+			if (!(g in groups_seen)) { groups[gn++] = g; groups_seen[g] = 1 } \
 			next \
 		} \
 		/^[a-zA-Z_-]+:.*## / { \
 			split($$0, a, /:.*## /); \
-			target = a[1]; desc = a[2]; \
-			g = group; \
-			if (!(g in seen)) { order[n++] = g; seen[g] = 1 } \
-			count[g]++; \
-			tnames[g, count[g]] = target; \
-			descs[g, target] = desc \
+			tnames[tc] = a[1]; \
+			tdescs[a[1]] = a[2]; \
+			tc++ \
 		} \
 		END { \
-			for (i = 0; i < n; i++) { \
-				g = order[i]; \
+			for (i = 0; i < tc; i++) { \
+				target = tnames[i]; \
+				matched = 0; \
+				for (j = 0; j < gn; j++) { \
+					g = groups[j]; \
+					if (g != "" && (target == g || index(target, g "-") == 1)) { \
+						target_grp[target] = g; \
+						matched = 1; \
+						break \
+					} \
+				} \
+				if (!matched) target_grp[target] = "" \
+			} \
+			for (i = 0; i < tc; i++) { \
+				target = tnames[i]; \
+				g = target_grp[target]; \
+				if (!(g in grp_seen)) { grp_order[go++] = g; grp_seen[g] = 1 } \
+				count[g]++; \
+				gtnames[g, count[g]] = target \
+			} \
+			for (i = 0; i < go; i++) { \
+				g = grp_order[i]; \
 				if (i > 0) print ""; \
 				if (g != "") \
 					printf "\033[1;33m== %s ==\033[0m\n", g; \
 				k = count[g]; \
-				for (p = 0; p < k; p++) names[p] = tnames[g, p+1]; \
+				for (p = 0; p < k; p++) names[p] = gtnames[g, p+1]; \
 				for (p = 1; p < k; p++) { \
 					cur = names[p]; q = p - 1; \
 					while (q >= 0 && cmp(g, names[q], cur) > 0) { names[q+1] = names[q]; q-- } \
 					names[q+1] = cur \
 				} \
 				for (p = 0; p < k; p++) \
-					printf "  \033[36m%-16s\033[0m %s\n", names[p], descs[g, names[p]]; \
+					printf "  \033[36m%-16s\033[0m %s\n", names[p], tdescs[names[p]]; \
 				delete names \
 			} \
 		}' $(MAKEFILE_LIST)
 
-## @help-group: snap
-
 .PHONY: snap-build
 snap-build:  ## Cross-compile the snap binary
 	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) go build -o ./bin/snap ./cmd/snap
-
-## @help-group: docker
 
 DOCKER_IMAGE     := snap-poc
 DOCKER_CONTAINER := snap-poc
@@ -107,8 +124,6 @@ docker-wipe: docker-down  ## Stop the container and delete its state volumes
 .PHONY: docker-clean
 docker-clean: docker-wipe  ## Remove image + state volumes
 	-docker rmi -f $(DOCKER_IMAGE) >/dev/null 2>&1
-
-## @help-group: rock
 
 ROCK_NAME    := snap-rock
 ROCK_VERSION := 0.1
@@ -181,19 +196,25 @@ rock-clean:  ## Remove built rock artefacts
 	rm -rf rock/_stage rock/*.rock
 	cd rock && rockcraft clean || true
 
-## @help-group:
-
 .PHONY: unit
 unit:  ## Run go unit tests across all packages with the race detector
 	go test -race ./...
+
+.PHONY: bench
+bench:  ## Run benchmarks (override scope/duration: PKG=… BENCH=… BENCHTIME=…)
+	go test -run '^$$' -bench '$(or $(BENCH),.)' -benchmem -benchtime '$(or $(BENCHTIME),1s)' $(or $(PKG),./...)
+
+.PHONY: cover
+cover:  ## Coverage profile + HTML file (cover.out, cover.html)
+	go test -coverpkg=./... -coverprofile=cover.out -race ./...
+	go tool cover -func=cover.out
+	go tool cover -html=cover.out -o cover.html
 
 .PHONY: test
 test: unit spread  ## Run unit + spread tests
 
 .PHONY: clean
 clean: snap-clean docker-clean rock-clean spread-clean  ## Run all *-clean targets
-
-## @help-group: spread
 
 SPREAD_IMAGE := snap-spread-sshd-noble-$(ROCK_ARCH)
 

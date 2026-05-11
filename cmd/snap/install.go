@@ -189,6 +189,9 @@ func installOne(name, channel string) error {
 			return fmt.Errorf("wire base fs: %w", err)
 		}
 	}
+	if err := startDaemonsForSnap(installedInfo); err != nil {
+		return fmt.Errorf("start daemons: %w", err)
+	}
 	return nil
 }
 
@@ -323,6 +326,9 @@ func installLocal(snapPath string) error {
 		if err := wireBaseFs(info, mountDir); err != nil {
 			return fmt.Errorf("wire base fs: %w", err)
 		}
+	}
+	if err := startDaemonsForSnap(info); err != nil {
+		return fmt.Errorf("start daemons: %w", err)
 	}
 	return nil
 }

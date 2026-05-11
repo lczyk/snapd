@@ -31,6 +31,10 @@ func removeOne(name string) error {
 		return fmt.Errorf("not installed")
 	}
 
+	// stop daemons before deleting the snap tree; snap.yaml must still
+	// be readable for declaredDaemons to work.
+	stopDaemonsForSnap(name)
+
 	// drop /snap/bin/<x> shims that point at the snap's apps. listing
 	// /snap/bin and removing every link whose name starts with the
 	// snap-name (either bare for the same-named app or "<name>." for

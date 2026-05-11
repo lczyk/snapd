@@ -95,6 +95,11 @@ func cmdRun(args []string) error {
 	envMap := buildRunEnv(info, app, concreteMount, snapName, revStr)
 	envSlice := mapToEnv(envMap)
 
+	// lazy-launch any declared daemon supervisors that aren't running.
+	// covers both `snap run foo` and the /snap/bin/foo shim path, so
+	// daemons come up automatically after a container restart.
+	ensureDaemonsRunning(snapName)
+
 	if err := syscall.Exec(finalArgv[0], finalArgv, envSlice); err != nil {
 		return fmt.Errorf("exec %s: %w", finalArgv[0], err)
 	}

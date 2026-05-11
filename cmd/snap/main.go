@@ -63,6 +63,15 @@ func main() {
 }
 
 func run(invokedAs string, args []string) error {
+	// snap-super mode: --secret-daemon-mode must be the first argument.
+	// dispatches into the supervisor loop for a single snap daemon.
+	if len(args) >= 1 && args[0] == "--secret-daemon-mode" {
+		if len(args) < 2 {
+			return fmt.Errorf("--secret-daemon-mode requires a snap.service argument")
+		}
+		return runSupervisor(args[1])
+	}
+
 	// shim mode: when invoked via a /snap/bin/<x> symlink, argv[0]
 	// is the link path. translate to `run <x> <args...>` so the
 	// user sees their installed snap, not the snap multitool.
@@ -91,6 +100,18 @@ func run(invokedAs string, args []string) error {
 		return cmdInfo(args[1:])
 	case "find":
 		return cmdFind(args[1:])
+	case "services":
+		return cmdServices(args[1:])
+	case "start":
+		return cmdStart(args[1:])
+	case "stop":
+		return cmdStop(args[1:])
+	case "restart":
+		return cmdRestart(args[1:])
+	case "logs":
+		return cmdLogs(args[1:])
+	case "enable", "disable":
+		return cmdEnableDisable(args[0], args[1:])
 	case "-h", "--help", "help":
 		fmt.Print(usage)
 		return nil

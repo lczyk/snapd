@@ -1,6 +1,8 @@
 ./share
 tags
 .coverage
+cover.out
+cover.html
 snapdtool/version_generated.go
 cmd/version_generated.go
 cmd/VERSION

@@ -80,8 +80,8 @@ func cmdRun(args []string) error {
 		return fmt.Errorf("app %q not found in snap %q", appName, snapName)
 	}
 
-	cmdPath := filepath.Join(concreteMount, app.Command)
-	finalArgv := append([]string{cmdPath}, rest...)
+	envMap := buildRunEnv(info, app, concreteMount, snapName, revStr)
+	finalArgv := append(splitCommand(app.Command, concreteMount, envMap), rest...)
 
 	// command-chain (wrapper.sh etc.) runs ahead of the app's command
 	if len(app.CommandChain) > 0 {
@@ -91,8 +91,6 @@ func cmdRun(args []string) error {
 		}
 		finalArgv = append(chain, finalArgv...)
 	}
-
-	envMap := buildRunEnv(info, app, concreteMount, snapName, revStr)
 	envSlice := mapToEnv(envMap)
 
 	// lazy-launch any declared daemon supervisors that aren't running.

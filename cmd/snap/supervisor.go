@@ -14,6 +14,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -233,8 +234,8 @@ func handleIPCConn(conn net.Conn, stopCh chan struct{}, restartCh chan struct{})
 }
 
 func buildDaemonCmd(info *snap.Info, app *snap.AppInfo, concreteMount, snapName, revStr string) *exec.Cmd {
-	cmdPath := filepath.Join(concreteMount, app.Command)
-	argv := []string{cmdPath}
+	envMap := buildRunEnv(info, app, concreteMount, snapName, revStr)
+	argv := splitCommand(app.Command, concreteMount, envMap)
 
 	if len(app.CommandChain) > 0 {
 		chain := make([]string, 0, len(app.CommandChain))
@@ -244,10 +245,26 @@ func buildDaemonCmd(info *snap.Info, app *snap.AppInfo, concreteMount, snapName,
 		argv = append(chain, argv...)
 	}
 
-	envMap := buildRunEnv(info, app, concreteMount, snapName, revStr)
 	cmd := exec.Command(argv[0], argv[1:]...)
 	cmd.Env = mapToEnv(envMap)
 	return cmd
+}
+
+// splitCommand splits a snap.yaml command string into an argv slice.
+// the first token is joined with mountDir (it's a snap-relative path);
+// remaining tokens have $VAR references expanded against env. this mirrors
+// what snap-exec does for inline arguments in the command field.
+func splitCommand(command, mountDir string, env map[string]string) []string {
+	parts := strings.Fields(command)
+	if len(parts) == 0 {
+		return []string{mountDir}
+	}
+	argv := make([]string, len(parts))
+	argv[0] = filepath.Join(mountDir, parts[0])
+	for i, p := range parts[1:] {
+		argv[i+1] = expand(p, env)
+	}
+	return argv
 }
 
 // resolveRestartCond maps the snap.yaml restart field to a supported

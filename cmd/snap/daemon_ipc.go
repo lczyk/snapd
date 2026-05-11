@@ -198,13 +198,23 @@ func stopDaemonsForSnap(snapName string) {
 func stopOne(snapName, svcName string) error {
 	const ipcTimeout = 10 * time.Second
 	err := sendSupervisorCommand(snapName, svcName, "stop", ipcTimeout)
-	if err == nil {
-		fmt.Printf("stopped %s.%s\n", snapName, svcName)
-		return nil
+	if err != nil {
+		// NOTE: IPC failure is an error state -- supervisor unresponsive.
+		fmt.Fprintf(os.Stderr, "warning: IPC stop failed for %s.%s (%v); killing supervisor\n", snapName, svcName, err)
+		return emergencyKill(snapName, svcName)
 	}
-	// NOTE: IPC failure is an error state -- supervisor unresponsive.
-	fmt.Fprintf(os.Stderr, "warning: IPC stop failed for %s.%s (%v); killing supervisor\n", snapName, svcName, err)
-	return emergencyKill(snapName, svcName)
+	// wait for snap-super to exit and remove its pid file. snap-super may
+	// take up to its graceful-stop timeout before the file disappears.
+	pidPath := supervisorPidPath(snapName, svcName)
+	deadline := time.Now().Add(15 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(pidPath); os.IsNotExist(err) {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	fmt.Printf("stopped %s.%s\n", snapName, svcName)
+	return nil
 }
 
 // ensureDaemonsRunning starts any declared daemon supervisors for

@@ -1,0 +1,2 @@
+summary: snap revert switches back to previous revision after refresh
+execute: bash ./test.sh

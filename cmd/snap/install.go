@@ -359,25 +359,43 @@ func nextLocalRevision(name string) (snap.Revision, error) {
 	return snap.R(-(max + 1)), nil
 }
 
-// pruneOldRevisions removes /snap/<name>/<rev> dirs that aren't the
-// current revision. called after a fresh install / refresh so we
-// don't leak storage on each update cycle.
+// pruneOldRevisions keeps the current revision plus at most one previous
+// revision (to support `snap revert`), and removes everything older.
+// called after a fresh install / refresh so storage doesn't leak on
+// each update cycle.
 func pruneOldRevisions(info *snap.Info) error {
+	// reuse the sorted revision list from revert.go
+	revs, err := installedRevisions(info.SnapName())
+	if err != nil {
+		return err
+	}
+	cur := info.Revision.String()
+	// collect revisions to keep: current + the one immediately before it
+	keepSet := map[string]bool{cur: true}
+	for i, r := range revs {
+		if r.String() == cur && i > 0 {
+			keepSet[revs[i-1].String()] = true
+			break
+		}
+	}
 	parent := filepath.Join(snapMountDir, info.SnapName())
 	entries, err := os.ReadDir(parent)
 	if err != nil {
 		return err
 	}
-	keep := info.Revision.String()
 	for _, e := range entries {
 		n := e.Name()
-		if n == "current" || n == ".current.new" || n == keep {
+		if n == "current" || n == ".current.new" || keepSet[n] {
+			continue
+		}
+		// only remove dirs that look like revision numbers
+		if _, parseErr := snap.ParseRevision(n); parseErr != nil {
 			continue
 		}
 		if err := os.RemoveAll(filepath.Join(parent, n)); err != nil {
 			return err
 		}
-		// also drop the cached download for the old rev.
+		// also drop the cached download for the pruned rev.
 		_ = os.Remove(filepath.Join(snapDownloadDir,
 			fmt.Sprintf("%s_%s.snap", info.SnapName(), n)))
 	}

@@ -49,6 +49,14 @@ usage:
   snap info <name>...     print snap metadata; falls back to the
                           store if not installed locally
   snap find <query>...    search the store
+  snap version            print snap and host info
+  snap download [--channel=<chan>] [--target-directory=<dir>]
+      [--basename=<base>] <name>
+                          download the snap and its assertions to
+                          <dir> (default: current directory) without
+                          installing
+  snap revert [--revision=<rev>] <name>
+                          switch back to the previous on-disk revision
 
 every snap is treated as classic. the binary is meant to run inside
 a container; nothing else (apparmor, seccomp, mount namespaces, ...)
@@ -112,6 +120,12 @@ func run(invokedAs string, args []string) error {
 		return cmdLogs(args[1:])
 	case "enable", "disable":
 		return cmdEnableDisable(args[0], args[1:])
+	case "version":
+		return cmdVersion(args[1:])
+	case "download":
+		return cmdDownload(args[1:])
+	case "revert":
+		return cmdRevert(args[1:])
 	case "-h", "--help", "help":
 		fmt.Print(usage)
 		return nil

@@ -1,0 +1,2 @@
+summary: snap download fetches .snap and .assert to disk without installing
+execute: bash ./test.sh

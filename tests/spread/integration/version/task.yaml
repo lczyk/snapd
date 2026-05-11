@@ -1,0 +1,2 @@
+summary: snap version output matches expected format
+execute: bash ./test.sh

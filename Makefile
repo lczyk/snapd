@@ -66,6 +66,10 @@ DOCKER_VOLUMES := \
 	-v $(DOCKER_VOLUME)-varsnap:/var/snap \
 	-v $(DOCKER_VOLUME)-snapd:/var/lib/snapd
 
+# base snap whose /bin/sh backs docker-shell / docker-up. core22 ships a
+# static busybox sh at bin/sh; core24 uses the same layout.
+BASE_SNAP := $(or $(BASE),core22)
+
 .PHONY: docker
 docker:  ## Build the snap-poc docker image
 	docker build -t $(DOCKER_IMAGE) .
@@ -78,10 +82,9 @@ docker-install: docker  ## Run \`snap install <SNAP>\` in docker
 .PHONY: docker-shell
 docker-shell: docker  ## Drop into a shell in docker (state persists across runs)
 	-docker rm -f $(DOCKER_CONTAINER) >/dev/null 2>&1
-	@# bootstrap a base snap so /bin/sh exists. idempotent thanks to
-	@# the persistent volume + the install path's already-installed
-	@# short-circuit.
-	docker run --rm $(DOCKER_VOLUMES) $(DOCKER_IMAGE) install $(or $(BASE),core22)
+	@# pre-install the base snap so `snap run` resolves libs. idempotent
+	@# thanks to the persistent volume + the install path's short-circuit.
+	docker run --rm $(DOCKER_VOLUMES) $(DOCKER_IMAGE) install $(BASE_SNAP)
 	docker run -d --name $(DOCKER_CONTAINER) $(DOCKER_VOLUMES) \
 		--entrypoint /bin/sh $(DOCKER_IMAGE) -c 'sleep infinity'
 	-docker exec -it $(DOCKER_CONTAINER) /bin/sh

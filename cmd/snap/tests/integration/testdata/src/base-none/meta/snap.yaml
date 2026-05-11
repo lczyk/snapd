@@ -1,0 +1,7 @@
+name: test-base-none
+version: "1.0"
+summary: test snap with base none
+base: none
+apps:
+  test-base-none:
+    command: bin/hello

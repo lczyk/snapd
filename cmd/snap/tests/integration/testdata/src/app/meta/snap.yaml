@@ -1,0 +1,7 @@
+name: test-app
+version: "1.0"
+summary: test snap with a single app
+base: none
+apps:
+  test-app:
+    command: bin/hello

@@ -1,0 +1,4 @@
+name: test-minimal
+version: "1.0"
+summary: minimal test snap with no apps
+base: none

@@ -1,0 +1,7 @@
+name: test-sideload
+version: "1.0"
+summary: test snap for sideload path
+base: none
+apps:
+  test-sideload:
+    command: bin/hello

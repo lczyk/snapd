@@ -1,0 +1,4 @@
+name: test-base
+version: "1.0"
+summary: test snap of type base
+type: base

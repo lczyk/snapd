@@ -1,0 +1,10 @@
+name: test-daemon
+version: "1.0"
+summary: test snap with a daemon service
+base: none
+apps:
+  client:
+    command: bin/client
+  worker:
+    command: bin/worker
+    daemon: simple

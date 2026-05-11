@@ -1,0 +1,9 @@
+name: test-multi
+version: "1.0"
+summary: test snap with multiple apps
+base: none
+apps:
+  first:
+    command: bin/first
+  second:
+    command: bin/second

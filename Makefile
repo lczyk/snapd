@@ -48,27 +48,8 @@ help:  ## Show this help
 ## @help-group: snap
 
 .PHONY: snap-build
-snap-build:  ## Cross-compile the snap binary (cross-arch)
+snap-build:  ## Cross-compile the snap binary
 	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) go build -o ./bin/snap ./cmd/snap
-
-.PHONY: build
-build:  ## Build the snap binary for the host arch
-	go build -o ./bin/snap ./cmd/snap
-
-FIXTURE_SRC := cmd/snap/tests/integration/testdata/src
-FIXTURE_OUT := cmd/snap/tests/integration/testdata
-FIXTURES    := minimal app base multi sideload base-none daemon
-
-.PHONY: test-fixtures
-test-fixtures:  ## Build test fixture snaps into testdata/
-	@for name in $(FIXTURES); do \
-		mksquashfs $(FIXTURE_SRC)/$$name $(FIXTURE_OUT)/test-$$name.snap \
-			-noappend -comp xz -no-fragments -all-root -no-xattrs -quiet; \
-	done
-
-.PHONY: test-integration
-test-integration: build test-fixtures  ## Run integration tests (requires mksquashfs)
-	go test -v -timeout 60s ./cmd/snap/tests/integration/...
 
 ## @help-group: docker
 

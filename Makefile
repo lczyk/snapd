@@ -78,10 +78,15 @@ DOCKER_VOLUME    := snap-poc-state
 # snaps), /var/snap (per-snap data), /var/lib/snapd (assertion db +
 # cached downloads). same shape as the rock targets, just docker.
 
+# host snap cache so repeated `make docker-shell` / `docker-wipe` cycles
+# don't re-download every snap.
+SNAP_CACHE := $(realpath $(dir $(lastword $(MAKEFILE_LIST))))/tests/spread/.cache
+
 DOCKER_VOLUMES := \
 	-v $(DOCKER_VOLUME)-snap:/snap \
 	-v $(DOCKER_VOLUME)-varsnap:/var/snap \
-	-v $(DOCKER_VOLUME)-snapd:/var/lib/snapd
+	-v $(DOCKER_VOLUME)-snapd:/var/lib/snapd \
+	-v $(SNAP_CACHE)/snaps:/var/lib/snapd/snaps
 
 # base snap whose /bin/sh backs docker-shell / docker-up. core22 ships a
 # static busybox sh at bin/sh; core24 uses the same layout.
@@ -98,13 +103,14 @@ docker-install: docker  ## Run \`snap install <SNAP>\` in docker
 
 .PHONY: docker-shell
 docker-shell: docker  ## Drop into a shell in docker (state persists across runs)
+	@mkdir -p $(SNAP_CACHE)/snaps
 	-docker rm -f $(DOCKER_CONTAINER) >/dev/null 2>&1
 	@# pre-install the base snap so `snap run` resolves libs. idempotent
 	@# thanks to the persistent volume + the install path's short-circuit.
 	docker run --rm $(DOCKER_VOLUMES) $(DOCKER_IMAGE) install $(BASE_SNAP)
 	docker run -d --name $(DOCKER_CONTAINER) $(DOCKER_VOLUMES) \
-		--entrypoint /bin/sh $(DOCKER_IMAGE) -c 'sleep infinity'
-	-docker exec -it $(DOCKER_CONTAINER) /bin/sh
+		--entrypoint /bin/bash $(DOCKER_IMAGE) -c 'sleep infinity'
+	-docker exec -it $(DOCKER_CONTAINER) /bin/bash
 	docker rm -f $(DOCKER_CONTAINER) >/dev/null 2>&1
 
 .PHONY: docker-up

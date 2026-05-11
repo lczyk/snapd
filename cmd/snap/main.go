@@ -143,8 +143,13 @@ func run(invokedAs string, args []string) error {
 // binary was invoked via a /snap/bin/<x> symlink, "" otherwise.
 // matching is by directory rather than basename so renaming the
 // real binary to `snap` doesn't get treated as a shim for itself.
+//
+// COVER: regression test for bare-name panic (no directory component).
 func shimName(invokedAs string) string {
 	dir, base := filepath.Split(invokedAs)
+	if dir == "" {
+		return ""
+	}
 	// filepath.Split leaves a trailing slash on dir; trim it.
 	dir = dir[:len(dir)-1]
 	if dir != snapBinDir {

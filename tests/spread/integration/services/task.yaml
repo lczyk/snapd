@@ -1,2 +1,5 @@
 summary: snap service lifecycle -- install, start, stop, restart, logs, remove
-execute: bash ./test.sh
+variants:
+  - mosquitto
+  - redis
+execute: bash ./test_${SPREAD_VARIANT}.sh

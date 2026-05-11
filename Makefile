@@ -5,11 +5,53 @@ GOARCH ?= arm64
 
 help:  ## Show this help
 	@echo "Available targets:"
-	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-16s\033[0m %s\n", $$1, $$2}'
+	@awk ' \
+		function cmp(g, a, b) { \
+			if (a == g) return -1; \
+			if (b == g) return 1; \
+			return a < b ? -1 : (a > b ? 1 : 0) \
+		} \
+		/^## @help-group:[ \t]*/ { \
+			sub(/^## @help-group:[ \t]*/, ""); \
+			group = $$0; \
+			if (!(group in seen)) { order[n++] = group; seen[group] = 1 } \
+			next \
+		} \
+		/^[a-zA-Z_-]+:.*## / { \
+			split($$0, a, /:.*## /); \
+			target = a[1]; desc = a[2]; \
+			g = group; \
+			if (!(g in seen)) { order[n++] = g; seen[g] = 1 } \
+			count[g]++; \
+			tnames[g, count[g]] = target; \
+			descs[g, target] = desc \
+		} \
+		END { \
+			for (i = 0; i < n; i++) { \
+				g = order[i]; \
+				if (i > 0) print ""; \
+				if (g != "") \
+					printf "\033[1;33m== %s ==\033[0m\n", g; \
+				k = count[g]; \
+				for (p = 0; p < k; p++) names[p] = tnames[g, p+1]; \
+				for (p = 1; p < k; p++) { \
+					cur = names[p]; q = p - 1; \
+					while (q >= 0 && cmp(g, names[q], cur) > 0) { names[q+1] = names[q]; q-- } \
+					names[q+1] = cur \
+				} \
+				for (p = 0; p < k; p++) \
+					printf "  \033[36m%-16s\033[0m %s\n", names[p], descs[g, names[p]]; \
+				delete names \
+			} \
+		}' $(MAKEFILE_LIST)
 
-.PHONY: build
-build:  ## Cross-compile the snap binary
+## @help-group: snap
+
+.PHONY: snap-build
+snap-build:  ## Cross-compile the snap binary
 	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) go build -o ./bin/snap ./cmd/snap
+
+## @help-group: docker
 
 DOCKER_IMAGE     := snap-poc
 DOCKER_CONTAINER := snap-poc
@@ -63,13 +105,15 @@ docker-wipe: docker-down  ## Stop the container and delete its state volumes
 docker-clean: docker-wipe  ## Remove image + state volumes
 	-docker rmi -f $(DOCKER_IMAGE) >/dev/null 2>&1
 
+## @help-group: rock
+
 ROCK_NAME    := snap-rock
 ROCK_VERSION := 0.1
 ROCK_ARCH    := $(shell dpkg --print-architecture 2>/dev/null || echo $(GOARCH))
 ROCK_FILE    := rock/$(ROCK_NAME)_$(ROCK_VERSION)_$(ROCK_ARCH).rock
 
 .PHONY: rock-stage
-rock-stage: build  ## Stage the snap binary under rock/_stage/
+rock-stage: snap-build  ## Stage the snap binary under rock/_stage/
 	rm -rf rock/_stage
 	mkdir -p rock/_stage/usr/bin
 	cp ./bin/snap rock/_stage/usr/bin/snap
@@ -134,6 +178,8 @@ rock-clean:  ## Remove built rock artefacts
 	rm -rf rock/_stage rock/*.rock
 	cd rock && rockcraft clean || true
 
+## @help-group:
+
 .PHONY: unit
 unit:  ## Run go unit tests across all packages with the race detector
 	go test -race ./...
@@ -141,13 +187,22 @@ unit:  ## Run go unit tests across all packages with the race detector
 .PHONY: test
 test: unit spread  ## Run unit + spread tests
 
+.PHONY: clean
+clean: snap-clean docker-clean rock-clean spread-clean  ## Run all *-clean targets
+
+## @help-group: spread
+
 SPREAD_IMAGE := snap-spread-sshd-noble-$(ROCK_ARCH)
 
 .PHONY: spread-image
 spread-image:  ## Build the sshd image used by the spread adhoc backend
-	docker build -t $(SPREAD_IMAGE) \
-		-f tests/spread/images/Dockerfile.sshd-noble \
-		--platform linux/$(ROCK_ARCH) .
+	@if [ -z "$$(docker images -q $(SPREAD_IMAGE) 2>/dev/null)" ]; then \
+		docker build -t $(SPREAD_IMAGE) \
+			-f tests/spread/images/Dockerfile.sshd-noble \
+			--platform linux/$(ROCK_ARCH) .; \
+	else \
+		echo 'image $(SPREAD_IMAGE) already built'; \
+	fi
 
 # spread's filter rejects trailing slashes ("nothing matches provider
 # filter"). pass the bare task path without the trailing /.
@@ -158,15 +213,15 @@ LEAN_TASKS := \
 	tests/spread/integration/list-remove
 
 .PHONY: spread
-spread: build spread-image  ## Run the lean spread tasks (install + channel + sideload + list-remove)
+spread: snap-build spread-image  ## Run the lean spread tasks (install + channel + sideload + list-remove)
 	spread $(LEAN_TASKS)
 
 .PHONY: spread-extended
-spread-extended: build spread-image  ## Run the extended install task
+spread-extended: snap-build spread-image  ## Run the extended install task
 	spread tests/spread/integration/install-extended
 
 .PHONY: spread-debug
-spread-debug: build spread-image  ## Run spread w/ -debug -v (drops to shell on failure)
+spread-debug: snap-build spread-image  ## Run spread w/ -debug -v (drops to shell on failure)
 	spread -debug -v $(LEAN_TASKS)
 
 .PHONY: spread-list
@@ -180,6 +235,8 @@ spread-clean:  ## Remove spread containers, image, blob cache, and worker counte
 	rm -rf tests/spread/.cache
 	rm -f .spread-worker-num .spread-reuse.yaml
 
-.PHONY: clean
-clean:  ## Remove built binaries
+## @help-group: snap
+
+.PHONY: snap-clean
+snap-clean:  ## Remove built binaries
 	rm -rf ./bin

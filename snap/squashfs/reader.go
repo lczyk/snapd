@@ -115,7 +115,9 @@ func readSuperblock(ra io.ReaderAt) (superblock, error) {
 
 // readMetadataBlocks reads a chain of metadata blocks starting at tableStart+blockStart,
 // and returns the concatenated decompressed data, skipping skipBytes from the first block.
-func (r *nativeReader) readMetadataBlocks(tableStart, blockStart uint64, skipBytes, totalBytes int) ([]byte, error) {
+// tableEnd, if non-zero, is an absolute file offset beyond which no block should be read;
+// this prevents the loop from walking off the end of the table into adjacent tables.
+func (r *nativeReader) readMetadataBlocks(tableStart, blockStart uint64, skipBytes, totalBytes int, tableEnd uint64) ([]byte, error) {
 	var buf []byte
 	offset := blockStart
 	need := totalBytes + skipBytes
@@ -129,6 +131,10 @@ func (r *nativeReader) readMetadataBlocks(tableStart, blockStart uint64, skipByt
 		// and the next ReadAt walks off the end of the file -- the
 		// "EOF reading metadata at <near-eof-offset>" failure mode.
 		if len(buf) >= totalBytes {
+			break
+		}
+		// stop at table boundary to avoid reading adjacent tables
+		if tableEnd > 0 && tableStart+offset >= tableEnd {
 			break
 		}
 		pos := tableStart + offset
@@ -261,7 +267,7 @@ func (r *nativeReader) readInode(ref uint64) (*inode, error) {
 	// readU32 on the exhausted bytes.Reader returns zero for missing
 	// block sizes and writeFileData treats dataSize==0 as a sparse
 	// all-zero block, silently truncating the file.
-	data, err := r.readMetadataBlocks(r.sb.InodeTableStart, blockOff, byteOff, 256)
+	data, err := r.readMetadataBlocks(r.sb.InodeTableStart, blockOff, byteOff, 256, r.sb.DirTableStart)
 	if err != nil {
 		return nil, fmt.Errorf("read inode block: %w", err)
 	}
@@ -301,7 +307,7 @@ func (r *nativeReader) readInode(ref uint64) (*inode, error) {
 		}
 	}
 	if needed > len(data) {
-		data, err = r.readMetadataBlocks(r.sb.InodeTableStart, blockOff, byteOff, needed)
+		data, err = r.readMetadataBlocks(r.sb.InodeTableStart, blockOff, byteOff, needed, r.sb.DirTableStart)
 		if err != nil {
 			return nil, fmt.Errorf("re-read inode block (%d bytes): %w", needed, err)
 		}
@@ -419,7 +425,7 @@ if actualSize <= 0 {
 		return nil, nil
 	}
 
-	data, err := r.readMetadataBlocks(r.sb.DirTableStart, blockStart, int(blockOffset), actualSize)
+	data, err := r.readMetadataBlocks(r.sb.DirTableStart, blockStart, int(blockOffset), actualSize, r.sb.FragTableStart)
 	if err != nil {
 		return nil, fmt.Errorf("read dir blocks: %w", err)
 	}
@@ -632,7 +638,7 @@ func (r *nativeReader) readFragment(index uint32, offset uint32, length int) ([]
 	// header from random file bytes. only the entry at `entryOff` is
 	// needed (16 bytes), but read enough to cover any offset within
 	// the standard 8KB metadata block.
-	blockData, err := r.readMetadataBlocks(0, locList[blockIdx], 0, entryOff+16)
+	blockData, err := r.readMetadataBlocks(0, locList[blockIdx], 0, entryOff+16, 0)
 	if err != nil {
 		return nil, fmt.Errorf("read frag block: %w", err)
 	}

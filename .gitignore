@@ -131,3 +131,4 @@ cmd/test-driver
 # spread harness
 /tests/spread/.cache/
 /.spread-worker-num
+*.assert

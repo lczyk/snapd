@@ -63,23 +63,24 @@ func (d *decoder) Reopen(br io.ByteReader, size int64) error {
 }
 
 // decodeLiteral decodes a single literal from the LZMA stream.
-func (d *decoder) decodeLiteral() (op operation, err error) {
+func (d *decoder) decodeLiteral() (o op, err error) {
 	litState := d.State.litState(d.Dict.byteAt(1), d.Dict.head)
-	match := d.Dict.byteAt(int(d.State.rep[0]) + 1)
-	s, err := d.State.litCodec.Decode(d.rd, d.State.state, match, litState)
+	prevMatch := d.Dict.byteAt(int(d.State.rep[0]) + 1)
+	s, err := d.State.litCodec.Decode(d.rd, d.State.state, prevMatch, litState)
 	if err != nil {
-		return nil, err
+		return op{}, err
 	}
-	return lit{s}, nil
+	return op{isLit: true, b: s, n: 1}, nil
 }
 
 // errEOS indicates that an EOS marker has been found.
 var errEOS = errors.New("EOS marker found")
 
 // readOp decodes the next operation from the compressed stream. It
-// returns the operation. If an explicit end of stream marker is
-// identified the eos error is returned.
-func (d *decoder) readOp() (op operation, err error) {
+// returns the operation by value to avoid the per-op interface boxing
+// the original `operation` interface caused. If an explicit end of
+// stream marker is identified the eos error is returned.
+func (d *decoder) readOp() (o op, err error) {
 	// Value of the end of stream (EOS) marker
 	const eosDist = 1<<32 - 1
 
@@ -87,20 +88,20 @@ func (d *decoder) readOp() (op operation, err error) {
 
 	b, err := d.State.isMatch[state2].Decode(d.rd)
 	if err != nil {
-		return nil, err
+		return op{}, err
 	}
 	if b == 0 {
 		// literal
-		op, err := d.decodeLiteral()
+		o, err = d.decodeLiteral()
 		if err != nil {
-			return nil, err
+			return op{}, err
 		}
 		d.State.updateStateLiteral()
-		return op, nil
+		return o, nil
 	}
 	b, err = d.State.isRep[state].Decode(d.rd)
 	if err != nil {
-		return nil, err
+		return op{}, err
 	}
 	if b == 0 {
 		// simple match
@@ -111,49 +112,47 @@ func (d *decoder) readOp() (op operation, err error) {
 		// The length decoder returns the length offset.
 		n, err := d.State.lenCodec.Decode(d.rd, posState)
 		if err != nil {
-			return nil, err
+			return op{}, err
 		}
 		// The dist decoder returns the distance offset. The actual
 		// distance is 1 higher.
 		d.State.rep[0], err = d.State.distCodec.Decode(d.rd, n)
 		if err != nil {
-			return nil, err
+			return op{}, err
 		}
 		if d.State.rep[0] == eosDist {
 			d.eosMarker = true
-			return nil, errEOS
+			return op{}, errEOS
 		}
-		op = match{n: int(n) + minMatchLen,
-			distance: int64(d.State.rep[0]) + minDistance}
-		return op, nil
+		return op{n: int(n) + minMatchLen,
+			distance: int64(d.State.rep[0]) + minDistance}, nil
 	}
 	b, err = d.State.isRepG0[state].Decode(d.rd)
 	if err != nil {
-		return nil, err
+		return op{}, err
 	}
 	dist := d.State.rep[0]
 	if b == 0 {
 		// rep match 0
 		b, err = d.State.isRepG0Long[state2].Decode(d.rd)
 		if err != nil {
-			return nil, err
+			return op{}, err
 		}
 		if b == 0 {
 			d.State.updateStateShortRep()
-			op = match{n: 1, distance: int64(dist) + minDistance}
-			return op, nil
+			return op{n: 1, distance: int64(dist) + minDistance}, nil
 		}
 	} else {
 		b, err = d.State.isRepG1[state].Decode(d.rd)
 		if err != nil {
-			return nil, err
+			return op{}, err
 		}
 		if b == 0 {
 			dist = d.State.rep[1]
 		} else {
 			b, err = d.State.isRepG2[state].Decode(d.rd)
 			if err != nil {
-				return nil, err
+				return op{}, err
 			}
 			if b == 0 {
 				dist = d.State.rep[2]
@@ -168,25 +167,18 @@ func (d *decoder) readOp() (op operation, err error) {
 	}
 	n, err := d.State.repLenCodec.Decode(d.rd, posState)
 	if err != nil {
-		return nil, err
+		return op{}, err
 	}
 	d.State.updateStateRep()
-	op = match{n: int(n) + minMatchLen, distance: int64(dist) + minDistance}
-	return op, nil
+	return op{n: int(n) + minMatchLen, distance: int64(dist) + minDistance}, nil
 }
 
-// apply takes the operation and transforms the decoder dictionary accordingly.
-func (d *decoder) apply(op operation) error {
-	var err error
-	switch x := op.(type) {
-	case match:
-		err = d.Dict.writeMatch(x.distance, x.n)
-	case lit:
-		err = d.Dict.WriteByte(x.b)
-	default:
-		panic("op is neither a match nor a literal")
+// apply transforms the decoder dictionary according to the operation.
+func (d *decoder) apply(o op) error {
+	if o.isLit {
+		return d.Dict.WriteByte(o.b)
 	}
-	return err
+	return d.Dict.writeMatch(o.distance, o.n)
 }
 
 // decompress fills the dictionary unless no space for new data is

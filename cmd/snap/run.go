@@ -170,6 +170,24 @@ func buildRunEnv(info *snap.Info, app *snap.AppInfo, mountDir, snapName, rev str
 		}
 	}
 
+	// prepend the snap's own bin paths so shebangs like
+	// `#!/usr/bin/env node` resolve to $SNAP/bin/node directly, instead
+	// of falling through to /snap/bin/node (our shim, which would
+	// re-enter the snap CLI with the wrong argv[0] -- losing the
+	// directory component used by shimName -- and bail with
+	// "unknown subcommand <path>").
+	snapPath := strings.Join([]string{
+		filepath.Join(mountDir, "usr/sbin"),
+		filepath.Join(mountDir, "usr/bin"),
+		filepath.Join(mountDir, "sbin"),
+		filepath.Join(mountDir, "bin"),
+	}, ":")
+	if existing := env["PATH"]; existing != "" {
+		env["PATH"] = snapPath + ":" + existing
+	} else {
+		env["PATH"] = snapPath
+	}
+
 	// snap.yaml top-level env, then per-app env, with $VAR expansion
 	// against the env built so far. snap-exec does this via an
 	// EnvChain helper; we inline a simpler version.

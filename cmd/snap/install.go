@@ -182,6 +182,9 @@ func installOne(name, channel string) error {
 	if err := wireBins(installedInfo); err != nil {
 		return fmt.Errorf("wire /snap/bin shims: %w", err)
 	}
+	if err := ensureSnapDataDirs(info.SnapName(), info.Revision.String()); err != nil {
+		return fmt.Errorf("create snap data dirs: %w", err)
+	}
 	// base / os snaps own the userland everything else needs (libc,
 	// ld-linux-*, /bin/sh, ...). expose a few of those at standard
 	// host paths so dynamic snap binaries can resolve their ELF
@@ -324,6 +327,9 @@ func installLocal(snapPath string) error {
 	if err := wireBins(info); err != nil {
 		return fmt.Errorf("wire /snap/bin shims: %w", err)
 	}
+	if err := ensureSnapDataDirs(info.SnapName(), info.Revision.String()); err != nil {
+		return fmt.Errorf("create snap data dirs: %w", err)
+	}
 	if t := info.Type(); t == snap.TypeOS || t == snap.TypeBase {
 		if err := wireBaseFs(info); err != nil {
 			return fmt.Errorf("wire base fs: %w", err)
@@ -405,6 +411,33 @@ func pruneOldRevisions(info *snap.Info) error {
 // shim ends up in cmdRun, which sets up env and execs the real app.
 // this binary itself must live at /usr/bin/snap; if the user installed
 // it elsewhere, set SNAP_SELF to point at it.
+// ensureSnapDataDirs creates the per-snap state dirs that real snapd
+// would otherwise create as part of `link-snap`:
+//   - /var/snap/<name>/<rev>      ($SNAP_DATA, rev-scoped)
+//   - /var/snap/<name>/common     ($SNAP_COMMON, shared across revs)
+//   - /var/snap/<name>/current    symlink -> <rev>
+//
+// daemon wrapper scripts commonly write into $SNAP_DATA on first run
+// (copying default configs from $SNAP/etc/...). without these dirs the
+// wrapper aborts on the cp / `.` source line and the supervisor sits
+// in a restart loop.
+func ensureSnapDataDirs(snapName, rev string) error {
+	dataDir := filepath.Join(snapDataDir, snapName, rev)
+	commonDir := filepath.Join(snapDataDir, snapName, "common")
+	for _, d := range []string{dataDir, commonDir} {
+		if err := os.MkdirAll(d, 0755); err != nil {
+			return err
+		}
+	}
+	cur := filepath.Join(snapDataDir, snapName, "current")
+	tmp := filepath.Join(snapDataDir, snapName, ".current.new")
+	_ = os.Remove(tmp)
+	if err := os.Symlink(rev, tmp); err != nil {
+		return err
+	}
+	return os.Rename(tmp, cur)
+}
+
 func wireBins(info *snap.Info) error {
 	if err := os.MkdirAll(snapBinDir, 0755); err != nil {
 		return err

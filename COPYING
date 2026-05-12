@@ -672,3 +672,11 @@ may consider it more useful to permit linking proprietary applications with
 the library.  If this is what you want to do, use the GNU Lesser General
 Public License instead of this License.  But first, please read
 <http://www.gnu.org/philosophy/why-not-lgpl.html>.
+
+---
+
+snap/squashfs/xz/ has been developed from a vendored copy of
+github.com/ulikunitz/xz, which is distributed under the BSD 3-Clause License.
+The original license is preserved at COPYING-ulikunitz-xz and at
+snap/squashfs/xz/LICENSE.
+

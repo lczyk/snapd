@@ -69,10 +69,8 @@ type superblock struct {
 
 const (
 	compGzip = 1
-	compLzma = 2
 	compLzo  = 3
 	compXz   = 4
-	compLz4  = 5
 	compZstd = 6
 )
 

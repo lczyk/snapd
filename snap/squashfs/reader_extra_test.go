@@ -127,7 +127,8 @@ func TestNativeReaderModTime(t *testing.T) {
 }
 
 func TestDecompressUnsupported(t *testing.T) {
-	r := &nativeReader{sb: superblock{Compression: compLzma}}
+	// compression code 2 is lzma -- not supported by the native reader
+	r := &nativeReader{sb: superblock{Compression: 2}}
 	if _, err := r.decompress([]byte{0, 0, 0, 0}); err == nil {
 		t.Fatal("expected error for unsupported compression")
 	}

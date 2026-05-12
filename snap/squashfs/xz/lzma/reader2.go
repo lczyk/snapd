@@ -46,6 +46,14 @@ type Reader2 struct {
 	chunkReader io.Reader
 
 	cstate chunkState
+
+	// chunkBuf is a per-Reader2 scratch buffer used to slurp the
+	// entire compressed payload of an LZMA2 chunk before handing it
+	// to the range decoder. Reading bulk + decoding from a []byte is
+	// much cheaper than the per-byte interface-call dance through
+	// io.LimitReader + breader.
+	chunkBuf []byte
+	chunkBR  sliceByteReader
 }
 
 // NewReader2 creates a reader for an LZMA2 chunk sequence.
@@ -116,7 +124,17 @@ func (r *Reader2) startChunk() error {
 		r.chunkReader = r.ur
 		return nil
 	}
-	br := ByteReader(io.LimitReader(r.r, int64(header.compressed)+1))
+	compLen := int(header.compressed) + 1
+	if cap(r.chunkBuf) < compLen {
+		r.chunkBuf = make([]byte, compLen)
+	} else {
+		r.chunkBuf = r.chunkBuf[:compLen]
+	}
+	if _, err = io.ReadFull(r.r, r.chunkBuf); err != nil {
+		return err
+	}
+	r.chunkBR.reset(r.chunkBuf)
+	br := io.ByteReader(&r.chunkBR)
 	if r.decoder == nil {
 		state := newState(header.props)
 		r.decoder, err = newDecoder(br, state, r.dict, size)

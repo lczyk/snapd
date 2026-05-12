@@ -10,10 +10,12 @@ import (
 )
 
 // breader provides the ReadByte function for a Reader. It doesn't read
-// more data from the reader than absolutely necessary.
+// more data from the reader than absolutely necessary -- buffering
+// past the requested byte is unsafe in contexts (like LZMA2 chunks)
+// where the consumer expects byte-exact bounds. The bulk-read path
+// is handled at the chunk level via sliceByteReader.
 type breader struct {
 	io.Reader
-	// helper slice to save allocations
 	p []byte
 }
 
@@ -36,4 +38,29 @@ func (r *breader) ReadByte() (c byte, err error) {
 		return 0, err
 	}
 	return r.p[0], nil
+}
+
+// sliceByteReader is an io.ByteReader backed by a []byte. Used to
+// feed the LZMA range decoder from a pre-loaded chunk buffer with
+// zero per-byte interface or allocation overhead.
+type sliceByteReader struct {
+	data []byte
+	pos  int
+}
+
+// ReadByte returns the next byte or io.EOF when the slice is
+// exhausted.
+func (r *sliceByteReader) ReadByte() (byte, error) {
+	if r.pos >= len(r.data) {
+		return 0, io.EOF
+	}
+	c := r.data[r.pos]
+	r.pos++
+	return c, nil
+}
+
+// reset re-targets the reader at a new (or refilled) buffer.
+func (r *sliceByteReader) reset(data []byte) {
+	r.data = data
+	r.pos = 0
 }

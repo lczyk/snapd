@@ -43,17 +43,19 @@ func (dc *distCodec) deepcopy(src *distCodec) {
 	dc.alignCodec.deepcopy(&src.alignCodec)
 }
 
-// newDistCodec creates a new distance codec.
+// newDistCodec creates a new distance codec. Reuses pre-allocated
+// probs slices in the inline tree codecs to avoid the per-chunk
+// realloc.
 func (dc *distCodec) init() {
 	for i := range dc.posSlotCodecs {
-		dc.posSlotCodecs[i] = makeTreeCodec(posSlotBits)
+		dc.posSlotCodecs[i].probTree.init(posSlotBits)
 	}
 	for i := range dc.posModel {
 		posSlot := startPosModel + i
 		bits := (posSlot >> 1) - 1
-		dc.posModel[i] = makeTreeReverseCodec(bits)
+		dc.posModel[i].probTree.init(bits)
 	}
-	dc.alignCodec = makeTreeReverseCodec(alignBits)
+	dc.alignCodec.probTree.init(alignBits)
 }
 
 // lenState converts the value l to a supported lenState value.

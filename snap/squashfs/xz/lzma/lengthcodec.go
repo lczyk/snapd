@@ -42,18 +42,20 @@ func (lc *lengthCodec) deepcopy(src *lengthCodec) {
 	lc.high.deepcopy(&src.high)
 }
 
-// init initializes a new length codec.
+// init initializes a new length codec. Reuses any pre-allocated probs
+// slices inside the inline tree codecs to avoid the per-chunk realloc
+// that otherwise dominated the decode-time alloc count.
 func (lc *lengthCodec) init() {
 	for i := range lc.choice {
 		lc.choice[i] = probInit
 	}
 	for i := range lc.low {
-		lc.low[i] = makeTreeCodec(3)
+		lc.low[i].probTree.init(3)
 	}
 	for i := range lc.mid {
-		lc.mid[i] = makeTreeCodec(3)
+		lc.mid[i].probTree.init(3)
 	}
-	lc.high = makeTreeCodec(8)
+	lc.high.probTree.init(8)
 }
 
 // Encode encodes the length offset. The length offset l can be compute by

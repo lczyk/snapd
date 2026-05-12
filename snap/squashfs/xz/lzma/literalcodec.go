@@ -20,7 +20,9 @@ func (c *literalCodec) deepcopy(src *literalCodec) {
 	copy(c.probs, src.probs)
 }
 
-// init initializes the literal codec.
+// init initializes the literal codec. Reuses an existing probs slice
+// if it is already the right size to avoid re-allocation when the same
+// codec is reset across chunks with matching properties.
 func (c *literalCodec) init(lc, lp int) {
 	switch {
 	case !(minLC <= lc && lc <= maxLC):
@@ -28,7 +30,12 @@ func (c *literalCodec) init(lc, lp int) {
 	case !(minLP <= lp && lp <= maxLP):
 		panic("lp out of range")
 	}
-	c.probs = make([]prob, 0x300<<uint(lc+lp))
+	n := 0x300 << uint(lc+lp)
+	if cap(c.probs) < n {
+		c.probs = make([]prob, n)
+	} else {
+		c.probs = c.probs[:n]
+	}
 	for i := range c.probs {
 		c.probs[i] = probInit
 	}

@@ -114,17 +114,28 @@ func (t *probTree) deepcopy(src *probTree) {
 
 // makeProbTree initializes a probTree structure.
 func makeProbTree(bits int) probTree {
+	var t probTree
+	t.init(bits)
+	return t
+}
+
+// init (re)initialises the probTree in place. Reuses the existing
+// probs slice when its capacity matches, avoiding the per-chunk
+// allocation otherwise paid on each lengthCodec/distCodec reset.
+func (t *probTree) init(bits int) {
 	if !(1 <= bits && bits <= 32) {
 		panic("bits outside of range [1,32]")
 	}
-	t := probTree{
-		bits:  byte(bits),
-		probs: make([]prob, 1<<uint(bits)),
+	n := 1 << uint(bits)
+	if cap(t.probs) < n {
+		t.probs = make([]prob, n)
+	} else {
+		t.probs = t.probs[:n]
 	}
+	t.bits = byte(bits)
 	for i := range t.probs {
 		t.probs[i] = probInit
 	}
-	return t
 }
 
 // Bits provides the number of bits for the values to de- or encode.

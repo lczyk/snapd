@@ -33,14 +33,15 @@ func initProbSlice(p []prob) {
 	}
 }
 
-// Reset sets all state information to the original values.
+// Reset sets all state information to the original values. Reuses
+// existing codec probs slices when their sizes match -- zeroing the
+// state by struct-assignment would clobber those slice headers and
+// force a fresh per-chunk allocation in each codec init.
 func (s *state) Reset() {
 	p := s.Properties
-	*s = state{
-		Properties: p,
-		// dict:       s.dict,
-		posBitMask: (uint32(1) << uint(p.PB)) - 1,
-	}
+	s.rep = [4]uint32{}
+	s.state = 0
+	s.posBitMask = (uint32(1) << uint(p.PB)) - 1
 	initProbSlice(s.isMatch[:])
 	initProbSlice(s.isRep[:])
 	initProbSlice(s.isRepG0[:])

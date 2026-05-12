@@ -134,7 +134,7 @@ func TestNativeReaderModTime(t *testing.T) {
 func TestDecompressUnsupported(t *testing.T) {
 	// no codec at id 0; exercises the default branch.
 	r := &nativeReader{sb: superblock{Compression: 0}}
-	if _, err := r.decompress([]byte{0, 0, 0, 0}); err == nil {
+	if _, err := r.decompress([]byte{0, 0, 0, 0}, 0); err == nil {
 		t.Fatal("expected error for unsupported compression")
 	}
 }
@@ -152,7 +152,7 @@ func TestDecompressBadData(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			r := &nativeReader{sb: superblock{Compression: tc.comp}}
-			if _, err := r.decompress([]byte{0xff, 0xff, 0xff, 0xff}); err == nil {
+			if _, err := r.decompress([]byte{0xff, 0xff, 0xff, 0xff}, 0); err == nil {
 				t.Errorf("expected error for garbage %s input", tc.name)
 			}
 		})
@@ -296,7 +296,7 @@ func TestDecompressRoundtrip(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			r := &nativeReader{sb: superblock{Compression: tc.comp, BlockSize: 131072}}
-			got, err := r.decompress(tc.enc(payload))
+			got, err := r.decompress(tc.enc(payload), 0)
 			if err != nil {
 				t.Fatalf("decompress: %v", err)
 			}

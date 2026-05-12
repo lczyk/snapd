@@ -160,7 +160,7 @@ func (r *nativeReader) readMetadataBlocks(tableStart, blockStart uint64, skipByt
 
 		if compressed {
 			var err error
-			data, err = r.decompress(data)
+			data, err = r.decompress(data, 8192)
 			if err != nil {
 				return nil, fmt.Errorf("decompress metadata at %d: %w", pos, err)
 			}
@@ -189,7 +189,12 @@ func (r *nativeReader) readMetadataBlocks(tableStart, blockStart uint64, skipByt
 	return buf, nil
 }
 
-func (r *nativeReader) decompress(data []byte) ([]byte, error) {
+// decompress decompresses one squashfs block. outCap is a caller-known
+// upper bound on the decompressed size (8KB for metadata blocks,
+// BlockSize for data blocks), used to pre-allocate the output buffer
+// and skip the doubling-grow path io.ReadAll otherwise walks. Pass 0
+// to fall back to io.ReadAll's default behaviour.
+func (r *nativeReader) decompress(data []byte, outCap int) ([]byte, error) {
 	switch r.sb.Compression {
 	case compGzip:
 		rd, err := zlib.NewReader(bytes.NewReader(data))
@@ -197,20 +202,20 @@ func (r *nativeReader) decompress(data []byte) ([]byte, error) {
 			return nil, err
 		}
 		defer rd.Close()
-		return io.ReadAll(rd)
+		return readPresized(rd, outCap)
 	case compXz:
 		rd, err := xz.NewReader(bytes.NewReader(data))
 		if err != nil {
 			return nil, err
 		}
-		return io.ReadAll(rd)
+		return readPresized(rd, outCap)
 	case compZstd:
 		rd, err := zstd.NewReader(bytes.NewReader(data))
 		if err != nil {
 			return nil, err
 		}
 		defer rd.Close()
-		return io.ReadAll(rd)
+		return readPresized(rd, outCap)
 	case compLzo:
 		// LZO blocks in squashfs are LZO1X. the output size for a
 		// data block is at most blockSize (capped by the spec); for
@@ -225,7 +230,7 @@ func (r *nativeReader) decompress(data []byte) ([]byte, error) {
 		if err != nil {
 			return nil, err
 		}
-		return io.ReadAll(rd)
+		return readPresized(rd, outCap)
 	case compLz4:
 		// squashfs lz4 blocks are raw lz4 blocks (no frame). the
 		// decompressed size is bounded by BlockSize for data blocks
@@ -245,6 +250,20 @@ func (r *nativeReader) decompress(data []byte) ([]byte, error) {
 	default:
 		return nil, fmt.Errorf("unsupported compression type: %d", r.sb.Compression)
 	}
+}
+
+// readPresized reads everything from rd into a buffer that is grown
+// to `cap` up front. Equivalent to io.ReadAll(rd) but skips the
+// doubling-grow path bytes.Buffer / io.ReadAll otherwise walks on the
+// hot decompress path. If cap is 0, falls back to io.ReadAll.
+func readPresized(rd io.Reader, cap int) ([]byte, error) {
+	if cap <= 0 {
+		return io.ReadAll(rd)
+	}
+	var b bytes.Buffer
+	b.Grow(cap)
+	_, err := b.ReadFrom(rd)
+	return b.Bytes(), err
 }
 
 // --- inode reading -------------------------------------------------------------
@@ -537,7 +556,7 @@ func (r *nativeReader) writeFileData(ino *inode, w io.Writer) error {
 			}
 			if compressed {
 				var err error
-				blockData, err = r.decompress(blockData)
+				blockData, err = r.decompress(blockData, int(r.sb.BlockSize))
 				if err != nil {
 					return fmt.Errorf("decompress data block %d at %d (size %d, compressed): %w", i, pos, dataSize, err)
 				}
@@ -608,7 +627,7 @@ func (r *nativeReader) readFileData(ino *inode) ([]byte, error) {
 			}
 			if compressed {
 				var err error
-				blockData, err = r.decompress(blockData)
+				blockData, err = r.decompress(blockData, int(r.sb.BlockSize))
 				if err != nil {
 					return nil, fmt.Errorf("decompress data block %d: %w", i, err)
 				}
@@ -683,7 +702,7 @@ func (r *nativeReader) readFragment(index uint32, offset uint32, length int) ([]
 		return nil, fmt.Errorf("read fragment data: %w", err)
 	}
 	if compressed {
-		fragData, err = r.decompress(fragData)
+		fragData, err = r.decompress(fragData, int(r.sb.BlockSize))
 		if err != nil {
 			return nil, fmt.Errorf("decompress fragment: %w", err)
 		}

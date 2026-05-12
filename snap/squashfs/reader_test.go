@@ -208,21 +208,21 @@ func BenchmarkDecompress(b *testing.B) {
 		r := makeReader(compGzip)
 		b.ResetTimer()
 		for b.Loop() {
-			r.decompress(compressedGzip)
+			r.decompress(compressedGzip, 0)
 		}
 	})
 	b.Run("xz-8k", func(b *testing.B) {
 		r := makeReader(compXz)
 		b.ResetTimer()
 		for b.Loop() {
-			r.decompress(compressedXZ)
+			r.decompress(compressedXZ, 0)
 		}
 	})
 	b.Run("zstd-8k", func(b *testing.B) {
 		r := makeReader(compZstd)
 		b.ResetTimer()
 		for b.Loop() {
-			r.decompress(compressedZstd)
+			r.decompress(compressedZstd, 0)
 		}
 	})
 	// larger payloads (128k), more typical of squashfs data blocks
@@ -234,21 +234,21 @@ func BenchmarkDecompress(b *testing.B) {
 		r := makeReader(compGzip)
 		b.ResetTimer()
 		for b.Loop() {
-			r.decompress(bigGzip)
+			r.decompress(bigGzip, 0)
 		}
 	})
 	b.Run("xz-128k", func(b *testing.B) {
 		r := makeReader(compXz)
 		b.ResetTimer()
 		for b.Loop() {
-			r.decompress(bigXZ)
+			r.decompress(bigXZ, 0)
 		}
 	})
 	b.Run("zstd-128k", func(b *testing.B) {
 		r := makeReader(compZstd)
 		b.ResetTimer()
 		for b.Loop() {
-			r.decompress(bigZstd)
+			r.decompress(bigZstd, 0)
 		}
 	})
 }

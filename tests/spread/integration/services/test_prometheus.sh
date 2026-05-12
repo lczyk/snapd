@@ -52,7 +52,7 @@ SUPER_PID="$(cat "$PID_FILE")"
 DAEMON_PID="$(pgrep -f /snap/prometheus/)"
 test "$SUPER_PID" != "$DAEMON_PID"
 
-curl -sf http://localhost:9090/-/healthy | grep -qi "prometheus"
+wget -qO- http://localhost:9090/-/healthy | grep -qi "prometheus"
 
 # -- logs --
 
@@ -88,7 +88,7 @@ pgrep -f /snap/prometheus/ | grep -q .
 pgrep -f "secret-daemon-mode $SVC" | grep -q .
 test -S "$SOCK_FILE"
 sleep 1
-curl -sf http://localhost:9090/-/healthy | grep -qi "prometheus"
+wget -qO- http://localhost:9090/-/healthy | grep -qi "prometheus"
 
 # -- restart --
 
@@ -110,7 +110,7 @@ test -S "$SOCK_FILE"
 # that the daemon was restarted.
 test "$(cat "$PID_FILE")" = "$PRE_RESTART_SUPER_PID"
 sleep 1
-curl -sf http://localhost:9090/-/healthy | grep -qi "prometheus"
+wget -qO- http://localhost:9090/-/healthy | grep -qi "prometheus"
 
 STARTS=$(grep -c '\[snap-super\] starting' "$LOG_FILE" || true)
 test "$STARTS" -ge 2

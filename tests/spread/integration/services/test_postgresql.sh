@@ -4,7 +4,8 @@
 #
 # postgresql won't start against an uninitialised data directory. the snap
 # relies on a configure hook to run initdb; our binary doesn't run hooks, so
-# we invoke initdb manually via `snap run postgresql.initdb` before waiting
+# we invoke cluster creation manually via `snap run postgresql.createcluster`
+# (which wraps initdb in the snap's create-cluster.sh script) before waiting
 # for the daemon.
 
 set -eux
@@ -24,7 +25,9 @@ snap install postgresql
 # has a valid data directory to start against. snap-super retries with
 # backoff until the process starts successfully.
 mkdir -p "$SNAP_COMMON"
-snap run postgresql.initdb
+# args: pg-major-version + cluster-name -- create-cluster.sh dereferences
+# ${CLUSTER_ARGS[-1]} so passing zero args trips "bad array subscript".
+snap run postgresql.createcluster 16 main
 
 for i in $(seq 1 30); do
     [ -f "$PID_FILE" ] && kill -0 "$(cat "$PID_FILE")" 2>/dev/null && break

@@ -92,10 +92,10 @@ func TestPropertiesMatrix(t *testing.T) {
 // is what squashfs compression code 2 (lzma) uses, so its correctness
 // matters even though it isn't on the xz hot path.
 func TestLzmaAloneRoundtrip(t *testing.T) {
-	// size=0 omitted: upstream writer + fork reader disagree on the
-	// boundary case in the lzma alone-format size-in-header path.
-	// Not on the squashfs hot path -- size 0 doesn't occur there.
-	sizes := []int{1, 4096, 64 * 1024, 256 * 1024}
+	// size=0 is covered: a workaround in decompress() handles the
+	// malformed empty stream upstream's writer produces in that
+	// case. See decoder.go.
+	sizes := []int{0, 1, 4096, 64 * 1024, 256 * 1024}
 	for _, n := range sizes {
 		t.Run(fmt.Sprintf("size=%d", n), func(t *testing.T) {
 			payload := mkPayload(n)

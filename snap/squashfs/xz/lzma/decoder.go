@@ -204,6 +204,24 @@ func (d *decoder) decompress() error {
 			return io.EOF
 		case io.EOF:
 			d.eos = true
+			// Upstream-bug workaround: github.com/ulikunitz/xz's
+			// lzma.Writer, when given SizeInHeader=true Size=0,
+			// writes a stream whose 8-byte size field is 0xff*8
+			// (i.e. "unknown size") and which carries no EOS
+			// marker. Our decoder sees size unknown, looks for an
+			// EOS marker, and hits io.EOF here on the very first
+			// readOp before any literal/match has been decoded.
+			//
+			// Treat that exact shape -- size unknown, zero bytes
+			// decoded so far, no prior EOS marker -- as a
+			// legitimate empty stream rather than reporting
+			// ErrUnexpectedEOF. This keeps fork-vs-upstream
+			// roundtrip for size=0 working; a genuinely truncated
+			// stream that hits EOF after some bytes decoded still
+			// falls through to ErrUnexpectedEOF.
+			if d.size < 0 && d.Decompressed() == 0 && !d.eosMarker {
+				return io.EOF
+			}
 			return io.ErrUnexpectedEOF
 		default:
 			return err

@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"hash"
 	"io"
+	"sync"
 
 	"github.com/snapcore/snapd/snap/squashfs/xz/lzma"
 )
@@ -55,6 +56,23 @@ type streamReader struct {
 	newHash func() hash.Hash
 	h       header
 	index   []record
+
+	// cachedHash is the block-integrity hash, reused across blocks
+	// within a stream by calling .Reset() between blocks. Avoids
+	// the per-block crc32.New / sha256.New allocation that showed
+	// up on the install hot path.
+	cachedHash hash.Hash
+}
+
+// getHash returns the per-block integrity hash, lazily creating one
+// the first time and resetting an existing one on subsequent calls.
+func (r *streamReader) getHash() hash.Hash {
+	if r.cachedHash == nil {
+		r.cachedHash = r.newHash()
+	} else {
+		r.cachedHash.Reset()
+	}
+	return r.cachedHash
 }
 
 // NewReader creates a new xz reader using the default parameters.
@@ -221,7 +239,7 @@ func (r *streamReader) Read(p []byte) (n int, err error) {
 				return n, err
 			}
 			r.br, err = r.ReaderConfig.newBlockReader(r.xz, bh,
-				hlen, r.newHash())
+				hlen, r.getHash())
 			if err != nil {
 				return n, err
 			}
@@ -235,6 +253,7 @@ func (r *streamReader) Read(p []byte) (n int, err error) {
 					r.br.closer.Close()
 					r.br.closer = nil
 				}
+				releaseBlockReader(r.br)
 				r.br = nil
 			} else {
 				return n, err
@@ -264,33 +283,69 @@ type blockReader struct {
 	headerLen int
 	n         int64
 	hash      hash.Hash
-	r         io.Reader
+	r         io.Reader // filter reader; hashing is done inline in Read
+	hashing   bool      // true when the integrity hash should consume bytes
 	closer    io.Closer
 }
 
-// newBlockReader creates a new block reader.
+// blockReaderPool caches *blockReader so that the streamReader can
+// recycle one per block instead of allocating fresh. Each install
+// scan triggers many block reads and the per-block alloc was a
+// measurable chunk of WalkDir's allocation count.
+var blockReaderPool struct {
+	mu    sync.Mutex
+	items []*blockReader
+}
+
+const maxPooledBlockReaders = 8
+
+func acquireBlockReader() *blockReader {
+	blockReaderPool.mu.Lock()
+	defer blockReaderPool.mu.Unlock()
+	if n := len(blockReaderPool.items); n > 0 {
+		br := blockReaderPool.items[n-1]
+		blockReaderPool.items = blockReaderPool.items[:n-1]
+		return br
+	}
+	return &blockReader{}
+}
+
+func releaseBlockReader(br *blockReader) {
+	if br == nil {
+		return
+	}
+	*br = blockReader{} // zero out to prevent stale refs
+	blockReaderPool.mu.Lock()
+	if len(blockReaderPool.items) < maxPooledBlockReaders {
+		blockReaderPool.items = append(blockReaderPool.items, br)
+	}
+	blockReaderPool.mu.Unlock()
+}
+
+// newBlockReader returns a block reader configured for the given
+// header. The returned *blockReader is drawn from blockReaderPool and
+// must be returned to the pool via releaseBlockReader once the block
+// has been fully consumed.
 func (c *ReaderConfig) newBlockReader(xz io.Reader, h *blockHeader,
 	hlen int, hash hash.Hash) (br *blockReader, err error) {
 
-	br = &blockReader{
-		lxz:       countingReader{r: xz},
-		header:    h,
-		headerLen: hlen,
-		hash:      hash,
-	}
+	br = acquireBlockReader()
+	br.lxz = countingReader{r: xz}
+	br.header = h
+	br.headerLen = hlen
+	br.hash = hash
+	br.n = 0
 
 	fr, err := c.newFilterReader(&br.lxz, h.filters)
 	if err != nil {
+		releaseBlockReader(br)
 		return nil, err
 	}
 	if c, ok := fr.(io.Closer); ok {
 		br.closer = c
 	}
-	if br.hash.Size() != 0 {
-		br.r = io.TeeReader(fr, br.hash)
-	} else {
-		br.r = fr
-	}
+	br.r = fr
+	br.hashing = br.hash.Size() != 0
 
 	return br, nil
 }
@@ -318,9 +373,13 @@ func (br *blockReader) record() record {
 	return record{br.unpaddedSize(), br.uncompressedSize()}
 }
 
-// Read reads data from the block.
+// Read reads data from the block. Hash bytes inline rather than via
+// an io.TeeReader wrapper, saving one alloc per block.
 func (br *blockReader) Read(p []byte) (n int, err error) {
 	n, err = br.r.Read(p)
+	if br.hashing && n > 0 {
+		br.hash.Write(p[:n])
+	}
 	br.n += int64(n)
 
 	u := br.header.uncompressedSize

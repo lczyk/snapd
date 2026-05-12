@@ -8,44 +8,63 @@ package lzma
 
 import "sync"
 
-// dictPools holds per-capacity sync.Pools of *decoderDict. The 8MB
-// dictionary buffer dominates allocation on the xz decode hot path; this
-// lets callers amortise it across blocks instead of paying per call.
-var dictPools sync.Map // key: int (dictCap), value: *sync.Pool
-
-func dictPoolFor(dictCap int) *sync.Pool {
-	if v, ok := dictPools.Load(dictCap); ok {
-		return v.(*sync.Pool)
-	}
-	cap := dictCap
-	p := &sync.Pool{New: func() any {
-		d, err := newDecoderDictUnpooled(cap)
-		if err != nil {
-			return nil
-		}
-		return d
-	}}
-	actual, _ := dictPools.LoadOrStore(dictCap, p)
-	return actual.(*sync.Pool)
+// dictPool caches *decoderDict instances for reuse. We originally used
+// sync.Pool but it gets flushed by the GC between bench iterations and
+// (more importantly) between blocks under real workloads, which made
+// the 8MB dictionary alloc the single largest decode-time alloc on
+// every miss. A mutex-guarded bounded LIFO trades a small idle-memory
+// cost (a few held dicts at the configured cap) for hit rates close to
+// 100% in steady-state workloads like a snap install scanning many
+// data blocks.
+type dictPool struct {
+	mu      sync.Mutex
+	items   []*decoderDict
+	dictCap int
 }
 
-// acquireDecoderDict pulls a *decoderDict of the requested capacity from
-// the pool, or makes a fresh one. The returned dict is empty (head=0,
-// buffer reset).
+const maxPooledDictsPerCap = 4
+
+// dictPools holds one dictPool per dictionary capacity.
+var dictPools sync.Map // key: int (dictCap), value: *dictPool
+
+func dictPoolFor(dictCap int) *dictPool {
+	if v, ok := dictPools.Load(dictCap); ok {
+		return v.(*dictPool)
+	}
+	p := &dictPool{dictCap: dictCap}
+	actual, _ := dictPools.LoadOrStore(dictCap, p)
+	return actual.(*dictPool)
+}
+
+// acquireDecoderDict pulls a *decoderDict of the requested capacity
+// from the pool, or makes a fresh one. The returned dict is empty
+// (head=0, buffer reset).
 func acquireDecoderDict(dictCap int) (*decoderDict, error) {
 	p := dictPoolFor(dictCap)
-	if d, ok := p.Get().(*decoderDict); ok && d != nil {
+	p.mu.Lock()
+	if n := len(p.items); n > 0 {
+		d := p.items[n-1]
+		p.items = p.items[:n-1]
+		p.mu.Unlock()
 		d.Reset()
 		d.buf.Reset()
 		return d, nil
 	}
+	p.mu.Unlock()
 	return newDecoderDictUnpooled(dictCap)
 }
 
-// releaseDecoderDict returns a dict to its capacity-keyed pool.
+// releaseDecoderDict returns a dict to its capacity-keyed pool. Drops
+// the dict on the floor if the pool is already at capacity, letting
+// the GC reclaim the buffer.
 func releaseDecoderDict(d *decoderDict) {
 	if d == nil {
 		return
 	}
-	dictPoolFor(d.buf.Cap()).Put(d)
+	p := dictPoolFor(d.buf.Cap())
+	p.mu.Lock()
+	if len(p.items) < maxPooledDictsPerCap {
+		p.items = append(p.items, d)
+	}
+	p.mu.Unlock()
 }

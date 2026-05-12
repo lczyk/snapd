@@ -29,6 +29,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/klauspost/compress/zstd"
@@ -115,12 +116,33 @@ func readSuperblock(ra io.ReaderAt) (superblock, error) {
 
 // --- metadata reading ----------------------------------------------------------
 
+// metaCompBufPool serves 8KB+ scratch buffers for the compressed
+// metadata-block payload. Each readMetadataBlocks call rents one,
+// slices it per inner-loop iteration, and returns it on exit.
+var metaCompBufPool = sync.Pool{New: func() any {
+	b := make([]byte, 8192+16)
+	return &b
+}}
+
+
 // readMetadataBlocks reads a chain of metadata blocks starting at tableStart+blockStart,
 // and returns the concatenated decompressed data, skipping skipBytes from the first block.
 // tableEnd, if non-zero, is an absolute file offset beyond which no block should be read;
 // this prevents the loop from walking off the end of the table into adjacent tables.
 func (r *nativeReader) readMetadataBlocks(tableStart, blockStart uint64, skipBytes, totalBytes int, tableEnd uint64) ([]byte, error) {
-	var buf []byte
+	// Metadata blocks are <= 8KB compressed per the squashfs spec.
+	// Acquire one reusable buffer from the pool and slice it
+	// per-iteration; the buffer's contents only need to live until
+	// decompress returns, so a single Put at function exit covers
+	// every inner-loop reuse. Avoids the per-iter heap alloc that
+	// the earlier `data := make([]byte, dataSize)` shape paid.
+	compBufPtr := metaCompBufPool.Get().(*[]byte)
+	defer metaCompBufPool.Put(compBufPtr)
+	compBuf := *compBufPtr
+
+	// Pre-size the output buffer to the caller's request so the
+	// append() chain doesn't doubling-grow underneath us.
+	buf := make([]byte, 0, totalBytes)
 	offset := blockStart
 	need := totalBytes + skipBytes
 	skipped := 0
@@ -144,7 +166,13 @@ func (r *nativeReader) readMetadataBlocks(tableStart, blockStart uint64, skipByt
 		dataSize := int(header & 0x7FFF)
 		compressed := (header & 0x8000) == 0
 
-		data := make([]byte, dataSize)
+		var data []byte
+		if dataSize <= cap(compBuf) {
+			data = compBuf[:dataSize]
+		} else {
+			// Spec says <=8KB but be defensive.
+			data = make([]byte, dataSize)
+		}
 		if _, err := r.ra.ReadAt(data, int64(pos)+2); err != nil {
 			// EOF here means the chain has run out of valid metadata
 			// blocks (e.g. we walked past the end of the table being

@@ -27,8 +27,6 @@ audit of what we don't cover after the round of perf + correctness work. ordered
 ## squashfs layer
 
 - **fixture w/ non-xz comps for the native benches.** only xz fixture today; won't catch comp-specific regressions in `walkDir` / `extractAll`.
-- **race detector on heavier paths.** `TestConcurrentDecode` (xz) under `-race` only. nothing exercises `extractFiles`' worker-pool path concurrently under `-race`.
-- **bench correctness.** xz benches do `io.Copy(io.Discard, r)` -- timing only, never validates bytes. wouldn't catch a regression that produced corrupt output at full throughput.
 
 ## snap-level
 
@@ -38,5 +36,4 @@ end-to-end install correctness sits in spread tests outside what we've touched -
 
 1. golden vectors (drift insurance, cheap once gathered).
 2. non-LZMA2 filter reject path.
-3. bench validation (cheap; skippable if differential / fuzz suite is trusted).
-4. non-xz fixture variants for native benches.
+3. non-xz fixture variants for native benches.

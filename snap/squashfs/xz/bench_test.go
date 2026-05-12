@@ -23,13 +23,25 @@ var (
 	fixture8k   []byte
 	fixture128k []byte
 	fixture1m   []byte
+
+	// the plaintext payloads behind each fixture, retained so a
+	// companion test (TestBenchFixturesRoundtrip) can verify the
+	// benchmarks aren't silently measuring a decoder that produces
+	// wrong output. benchmarks themselves discard the decoded
+	// bytes for timing reasons; this is the validating shadow.
+	payload8k   []byte
+	payload128k []byte
+	payload1m   []byte
 )
 
 func makeFixtures() {
 	fixtureOnce.Do(func() {
-		fixture8k = compressXZ(randomPayload(8 * 1024))
-		fixture128k = compressXZ(randomPayload(128 * 1024))
-		fixture1m = compressXZ(randomPayload(1024 * 1024))
+		payload8k = randomPayload(8 * 1024)
+		payload128k = randomPayload(128 * 1024)
+		payload1m = randomPayload(1024 * 1024)
+		fixture8k = compressXZ(payload8k)
+		fixture128k = compressXZ(payload128k)
+		fixture1m = compressXZ(payload1m)
 	})
 }
 

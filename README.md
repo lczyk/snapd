@@ -105,10 +105,12 @@ docker (scratch base, fastest iteration loop):
 
 ```
 make docker                              # build the image
-make docker-install SNAP=jq              # install one snap
-make docker-shell BASE=core22            # bootstrap a base + drop into /bin/sh
-make docker-wipe                         # nuke state volumes
+make docker-shell BASE=core22            # clean shell + bootstrapped base snap
 ```
+
+each `docker-shell` is a fresh container. only the host snap-blob cache at
+`tests/spread/.cache/snaps` is reused between runs so the base snap and any
+test fixtures don't re-download.
 
 rock (bare base + chisel ca-certs slice, via rockcraft + podman):
 
@@ -119,8 +121,8 @@ make rock-shell BASE=core22              # bootstrap + interactive shell
 make rock-wipe                           # nuke state volumes
 ```
 
-state persists across `*-install` / `*-shell` invocations via named volumes
-(`snap-poc-state-*`, `snap-rock-state-*`); `*-wipe` removes them.
+rock state persists across `rock-install` / `rock-shell` via the
+`snap-rock-state-*` named volumes; `rock-wipe` removes them.
 
 ## what's not here
 

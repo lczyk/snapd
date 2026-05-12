@@ -21,4 +21,4 @@ FROM ubuntu:24.04
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates && rm -rf /var/lib/apt/lists/*
 COPY --from=builder /out/snap /usr/bin/snap
 ENV PATH=/snap/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-ENTRYPOINT ["/usr/bin/snap"]
+CMD ["sleep", "infinity"]

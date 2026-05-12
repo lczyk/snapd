@@ -72,63 +72,36 @@ snap-build:  ## Cross-compile the snap binary
 
 DOCKER_IMAGE     := snap-poc
 DOCKER_CONTAINER := snap-poc
-DOCKER_VOLUME    := snap-poc-state
 
-# state goes into named docker volumes mounted at /snap (extracted
-# snaps), /var/snap (per-snap data), /var/lib/snapd (assertion db +
-# cached downloads). same shape as the rock targets, just docker.
-
-# host snap cache so repeated `make docker-shell` / `docker-wipe` cycles
-# don't re-download every snap.
+# host snap-blob cache: the only state that survives across runs.
+# everything else lives in the container's writable layer and dies
+# with `docker rm`.
 SNAP_CACHE := $(realpath $(dir $(lastword $(MAKEFILE_LIST))))/tests/spread/.cache
 
-DOCKER_VOLUMES := \
-	-v $(DOCKER_VOLUME)-snap:/snap \
-	-v $(DOCKER_VOLUME)-varsnap:/var/snap \
-	-v $(DOCKER_VOLUME)-snapd:/var/lib/snapd \
-	-v $(SNAP_CACHE)/snaps:/var/lib/snapd/snaps
-
-# base snap whose /bin/sh backs docker-shell / docker-up. core22 ships a
-# static busybox sh at bin/sh; core24 uses the same layout.
+# base snap whose /bin/sh backs docker-shell. core22 ships a static
+# busybox sh at bin/sh; core24 uses the same layout.
 BASE_SNAP := $(or $(BASE),core22)
 
 .PHONY: docker
 docker:  ## Build the snap-poc docker image
 	docker build -t $(DOCKER_IMAGE) .
 
-.PHONY: docker-install
-docker-install: docker  ## Run \`snap install <SNAP>\` in docker
-	@if [ -z "$(SNAP)" ]; then echo 'usage: make docker-install SNAP=<name>' >&2; exit 1; fi
-	docker run --rm $(DOCKER_VOLUMES) $(DOCKER_IMAGE) install $(SNAP)
-
 .PHONY: docker-shell
-docker-shell: docker  ## Drop into a shell in docker (state persists across runs)
+docker-shell: docker  ## Drop into a clean shell in docker (only snap blob cache persists)
 	@mkdir -p $(SNAP_CACHE)/snaps
 	-docker rm -f $(DOCKER_CONTAINER) >/dev/null 2>&1
-	@# pre-install the base snap so `snap run` resolves libs. idempotent
-	@# thanks to the persistent volume + the install path's short-circuit.
-	docker run --rm $(DOCKER_VOLUMES) $(DOCKER_IMAGE) install $(BASE_SNAP)
-	docker run -d --name $(DOCKER_CONTAINER) $(DOCKER_VOLUMES) \
-		--entrypoint /bin/bash $(DOCKER_IMAGE) -c 'sleep infinity'
+	docker run -d --name $(DOCKER_CONTAINER) \
+		-v $(SNAP_CACHE)/snaps:/var/lib/snapd/snaps \
+		$(DOCKER_IMAGE)
+	@# pre-install the base snap so `snap run` resolves libs. fresh
+	@# every run -- the install reads the blob from the host cache.
+	docker exec $(DOCKER_CONTAINER) /usr/bin/snap install $(BASE_SNAP)
 	-docker exec -it $(DOCKER_CONTAINER) /bin/bash
 	docker rm -f $(DOCKER_CONTAINER) >/dev/null 2>&1
 
-.PHONY: docker-up
-docker-up: docker  ## Start the docker container detached (state-persisting)
-	-docker rm -f $(DOCKER_CONTAINER) >/dev/null 2>&1
-	docker run -d --name $(DOCKER_CONTAINER) $(DOCKER_VOLUMES) \
-		--entrypoint /bin/sh $(DOCKER_IMAGE) -c 'sleep infinity'
-
-.PHONY: docker-down
-docker-down:  ## Stop and remove the docker container (volumes kept)
-	-docker rm -f $(DOCKER_CONTAINER) >/dev/null 2>&1
-
-.PHONY: docker-wipe
-docker-wipe: docker-down  ## Stop the container and delete its state volumes
-	-docker volume rm -f $(DOCKER_VOLUME)-snap $(DOCKER_VOLUME)-varsnap $(DOCKER_VOLUME)-snapd >/dev/null 2>&1
-
 .PHONY: docker-clean
-docker-clean: docker-wipe  ## Remove image + state volumes
+docker-clean:  ## Remove the snap-poc docker image
+	-docker rm -f $(DOCKER_CONTAINER) >/dev/null 2>&1
 	-docker rmi -f $(DOCKER_IMAGE) >/dev/null 2>&1
 
 ROCK_NAME    := snap-rock

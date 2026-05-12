@@ -19,7 +19,7 @@ shim, `snap refresh` w/ + w/out `--channel`, `snap install --channel=<x>`,
 `.channel` persistence across refreshes, `snap list`, `snap remove`, base
 snap auto-pull, `wireBaseFs` + `LD_LIBRARY_PATH` on host paths.
 
-**out**: testing the production scratch image (no sshd; `make docker-install`
+**out**: testing the production scratch image (no sshd; `make docker-shell`
 stays the manual smoke test for that). amd64 (designed-portable but
 unconfigured for v1). gui snaps (out of scope for the binary itself).
 ci -- local `make spread` only, ci added later.

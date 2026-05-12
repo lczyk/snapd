@@ -58,10 +58,22 @@ func (c Reader2Config) NewReader2(lzma2 io.Reader) (r *Reader2, err error) {
 	if err = c.Verify(); err != nil {
 		return nil, err
 	}
-	r = &Reader2{r: lzma2, cstate: start}
-	r.dict, err = newDecoderDict(c.DictCap)
-	if err != nil {
-		return nil, err
+	if r = acquireReader2(c.DictCap); r != nil {
+		// Pooled: dict, decoder, ur all retained. Reset transient
+		// fields; dict gets a fresh Reset, and decoder.State is
+		// reset on each startChunk anyway.
+		r.r = lzma2
+		r.err = nil
+		r.chunkReader = nil
+		r.cstate = start
+		r.dict.Reset()
+		r.dict.buf.Reset()
+	} else {
+		r = &Reader2{r: lzma2, cstate: start}
+		r.dict, err = newDecoderDict(c.DictCap)
+		if err != nil {
+			return nil, err
+		}
 	}
 	if err = r.startChunk(); err != nil {
 		r.err = err
@@ -118,7 +130,12 @@ func (r *Reader2) startChunk() error {
 	case cLR:
 		r.decoder.State.Reset()
 	case cLRN, cLRND:
-		r.decoder.State = newState(header.props)
+		// Reuse the existing state -- replacing it with newState
+		// would drop the already-allocated codec probs slices and
+		// force a re-alloc per chunk. Just swap in the new
+		// properties and let Reset reinitialise in place.
+		r.decoder.State.Properties = header.props
+		r.decoder.State.Reset()
 	}
 	err = r.decoder.Reopen(br, size)
 	if err != nil {
@@ -161,15 +178,19 @@ func (r *Reader2) EOS() bool {
 	return r.cstate == stop
 }
 
-// Close releases the dictionary buffer back to the per-capacity pool so
-// subsequent NewReader2 calls can reuse it. It is safe to call Close
-// multiple times; the second call is a noop. Reading from the Reader2
-// after Close is undefined.
+// Close returns the Reader2 (with its dict, decoder, and state) to the
+// per-capacity pool so subsequent NewReader2 calls can reuse the whole
+// thing -- not just the 8MB dictionary but also the codec prob tables
+// inside the decoder state. It is safe to call Close multiple times;
+// the second call is a noop. Reading from the Reader2 after Close is
+// undefined.
 func (r *Reader2) Close() error {
-	if r.dict != nil {
-		releaseDecoderDict(r.dict)
-		r.dict = nil
+	if r.r == nil {
+		return nil
 	}
+	r.r = nil
+	r.chunkReader = nil
+	releaseReader2(r)
 	return nil
 }
 

@@ -254,6 +254,11 @@ spread-clean:  ## Remove spread containers, image, blob cache, and worker counte
 	rm -rf tests/spread/.cache
 	rm -f .spread-worker-num .spread-reuse.yaml
 
+.PHONY: spread-nuke
+spread-nuke:  ## Kill stuck spread processes and force-remove sshd containers
+	-pkill spread
+	-docker ps | grep sshd | cut -d' ' -f1 | xargs -r docker rm --force
+
 ## @help-group: snap
 
 .PHONY: snap-clean

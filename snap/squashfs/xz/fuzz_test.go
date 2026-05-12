@@ -74,17 +74,33 @@ func FuzzRoundtrip(f *testing.F) {
 // Run with:
 //
 //	go test -run='^$' -fuzz=FuzzDecodeArbitrary -fuzztime=30s ./snap/squashfs/xz/
+// xzMagic is the 6-byte xz stream header magic. Splicing it into
+// every fuzz input lets the mutator explore the post-header parser
+// path (block headers, filter chain, lzma2 chunks) without the gate
+// rejecting most random bytes outright.
+var xzMagic = []byte{0xfd, '7', 'z', 'X', 'Z', 0x00}
+
 func FuzzDecodeArbitrary(f *testing.F) {
-	// Seed with at least one valid stream so the corpus has a
-	// baseline to mutate from.
+	// Diverse seeds so the mutator has multiple starting points
+	// past the magic gate.
 	f.Add(compressXZ(mkPayload(4096)))
+	f.Add(compressXZ(mkPayload(64 * 1024)))
+	f.Add(compressXZ(bytes.Repeat([]byte{0xaa}, 1024)))
 	f.Add([]byte("not an xz stream"))
 	f.Add([]byte{})
-	f.Add([]byte{0xfd, '7', 'z', 'X', 'Z', 0x00}) // valid magic, truncated
+	f.Add(xzMagic) // valid magic, truncated
 
 	const maxOutput = 16 << 20 // 16 MiB
 
 	f.Fuzz(func(t *testing.T, blob []byte) {
+		// Splice xz magic at offset 0 so the fuzzer can mutate
+		// the rest without falling off the header check. Copy
+		// first to avoid mutating the corpus entry.
+		if len(blob) >= len(xzMagic) {
+			blob = append([]byte(nil), blob...)
+			copy(blob[:len(xzMagic)], xzMagic)
+		}
+
 		r, err := xz.NewReader(bytes.NewReader(blob))
 		if err != nil {
 			// rejecting at construction is fine.

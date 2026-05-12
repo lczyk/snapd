@@ -21,6 +21,41 @@ import (
 	forklzma "github.com/snapcore/snapd/snap/squashfs/xz/lzma"
 )
 
+// TestRejectsBadMagic confirms xz.NewReader rejects inputs whose
+// first 6 bytes are not the xz stream-header magic.
+//
+// IMPORTANT: this covers the gate that FuzzDecodeArbitrary
+// deliberately bypasses -- the fuzzer splices the valid xz magic
+// into every input so the mutator can explore the post-header
+// parser paths (block headers, filter chain, lzma2 chunks). If the
+// magic check stops rejecting bad headers, the fuzzer won't catch
+// it; this hard test is the only thing keeping arbitrary bytes
+// from being silently treated as an xz stream.
+func TestRejectsBadMagic(t *testing.T) {
+	cases := []struct {
+		name string
+		blob []byte
+	}{
+		{"all zeros", bytes.Repeat([]byte{0}, 32)},
+		{"all 0xff", bytes.Repeat([]byte{0xff}, 32)},
+		{"wrong magic prefix", append([]byte("not xz"), bytes.Repeat([]byte{0}, 32)...)},
+		{"first byte off", append([]byte{0xfc, '7', 'z', 'X', 'Z', 0x00}, bytes.Repeat([]byte{0}, 16)...)},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			r, err := xz.NewReader(bytes.NewReader(tc.blob))
+			if err != nil {
+				return // rejected at construction -- good
+			}
+			// If construction accepted it, a Read must error.
+			_, err = io.ReadAll(r)
+			if err == nil {
+				t.Fatalf("expected error for %q, got nil", tc.name)
+			}
+		})
+	}
+}
+
 // TestDifferentialDecode runs the same xz blob through both the
 // upstream decoder and the inlined fork, comparing bytes byte-for-byte
 // and error states for parity. Catches any silent divergence in the

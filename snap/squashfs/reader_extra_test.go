@@ -165,6 +165,10 @@ func TestNewNativeReaderErrors(t *testing.T) {
 			t.Fatal("expected error")
 		}
 	})
+	// IMPORTANT: covers the magic gate that FuzzNativeReader
+	// bypasses (it splices the valid squashfs magic into every
+	// input). If newNativeReader stops rejecting bad magic, the
+	// fuzzer won't catch it.
 	t.Run("bad magic", func(t *testing.T) {
 		dir := t.TempDir()
 		p := filepath.Join(dir, "bogus.snap")
@@ -199,6 +203,10 @@ func TestFileHasSquashfsHeader(t *testing.T) {
 		}
 	})
 
+	// IMPORTANT: covers the magic gate that FuzzNativeReader
+	// bypasses (it splices the valid squashfs magic into every
+	// input). If FileHasSquashfsHeader stops rejecting wrong
+	// magic, the fuzzer won't catch it.
 	t.Run("wrong magic", func(t *testing.T) {
 		p := filepath.Join(dir, "wrong")
 		buf := make([]byte, 200)

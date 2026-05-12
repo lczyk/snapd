@@ -60,6 +60,13 @@ func TestReadBlockSizes(t *testing.T) {
 }
 
 func TestReadSuperblock(t *testing.T) {
+	// IMPORTANT: the "bad magic" subtest covers the gate that
+	// FuzzNativeReader deliberately bypasses -- the fuzzer splices
+	// the valid squashfs magic into every input so the mutator can
+	// explore the post-header parser paths. If the magic check
+	// stops rejecting bogus headers, the fuzzer won't catch it;
+	// this hard test is the only thing keeping arbitrary bytes
+	// from being silently treated as a squashfs image.
 	t.Run("bad magic", func(t *testing.T) {
 		bad := bytes.Repeat([]byte{0}, 96)
 		if _, err := readSuperblock(bytes.NewReader(bad)); err == nil {

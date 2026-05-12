@@ -8,12 +8,21 @@ package squashfs
 
 import (
 	"bytes"
+	"encoding/binary"
 	"errors"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 )
+
+// squashfsMagic is the 4-byte little-endian magic at offset 0 of
+// every valid squashfs superblock. Splicing it into every fuzz
+// input lets the fuzzer mutate the rest of the file without paying
+// the readSuperblock gate; coverage past the superblock check opens
+// up immediately.
+const squashfsMagic uint32 = 0x73717368
 
 // FuzzNativeReader feeds arbitrary bytes at the squashfs reader's
 // front door. Construction is allowed to fail (most random bytes
@@ -25,14 +34,16 @@ import (
 //
 //	go test -run='^$' -fuzz=FuzzNativeReader -fuzztime=30s ./snap/squashfs/
 func FuzzNativeReader(f *testing.F) {
-	// Seed with a real squashfs image so the corpus has something
-	// to mutate from instead of starting from pure-random bytes
-	// that won't survive the superblock check.
-	if seed := loadFuzzSeed(f); seed != nil {
+	// Seed with several real squashfs images so the corpus has
+	// diverse mutation starting points across compressors and
+	// fileset shapes. Without this every worker starts from the
+	// trivial seeds below, none of which clear the superblock
+	// magic check.
+	for _, seed := range loadSquashfsSeeds(f) {
 		f.Add(seed)
 	}
-	// Plus a couple of trivially-malformed seeds so the corpus
-	// hits short / wrong-magic paths immediately.
+	// Plus trivially-malformed seeds for the short / wrong-magic
+	// paths.
 	f.Add([]byte{})
 	f.Add(bytes.Repeat([]byte{0}, 96))
 	f.Add(bytes.Repeat([]byte{0xff}, 96))
@@ -40,6 +51,17 @@ func FuzzNativeReader(f *testing.F) {
 	const maxOutput = 16 << 20 // 16 MiB
 
 	f.Fuzz(func(t *testing.T, blob []byte) {
+		// Splice the squashfs magic at offset 0 unconditionally.
+		// Lets the fuzzer mutate every other byte without falling
+		// off the readSuperblock gate -- the coverage-driven
+		// mutator can then explore the inode / dir / metadata
+		// parsers properly. We make a copy first so we don't
+		// mutate the corpus entry the runner re-uses.
+		if len(blob) >= 4 {
+			blob = append([]byte(nil), blob...)
+			binary.LittleEndian.PutUint32(blob[:4], squashfsMagic)
+		}
+
 		// Construct a reader directly from the blob -- avoids the
 		// disk round-trip newNativeReader does and keeps the fuzz
 		// target self-contained.
@@ -90,18 +112,59 @@ func FuzzNativeReader(f *testing.F) {
 
 var errFuzzVisitsExceeded = errors.New("fuzz: visit count exceeded")
 
-// loadFuzzSeed returns a tiny real squashfs image to seed the corpus,
-// or nil if mksquashfs isn't available (in which case the fuzz still
-// runs against the trivial seeds below).
-func loadFuzzSeed(f *testing.F) []byte {
+// loadSquashfsSeeds returns several mksquashfs-built fixtures of
+// different shapes (compressors, file counts, sizes) so the fuzzer
+// has diverse starting points past the superblock gate. Returns nil
+// if mksquashfs isn't on $PATH.
+func loadSquashfsSeeds(f *testing.F) [][]byte {
 	f.Helper()
-	// Reuse the bench fixture builder. If mksquashfs isn't on
-	// $PATH the build sets fixture.err and we just skip the seed.
-	fixtureXZ.once.Do(func() { fixtureXZ.build("xz") })
-	if fixtureXZ.err != nil {
+	if _, err := exec.LookPath("mksquashfs"); err != nil {
 		return nil
 	}
-	data, err := os.ReadFile(fixtureXZ.path)
+	// Reuse the existing fixture (xz, 100 files) plus build a few
+	// more with different compressors and sizes inline so we get
+	// diverse parser shapes in the corpus.
+	fixtureXZ.once.Do(func() { fixtureXZ.build("xz") })
+	var seeds [][]byte
+	if fixtureXZ.err == nil {
+		if data, err := os.ReadFile(fixtureXZ.path); err == nil {
+			seeds = append(seeds, data)
+		}
+	}
+	for _, comp := range []string{"gzip", "zstd"} {
+		if data := buildTinySquashfs(comp); data != nil {
+			seeds = append(seeds, data)
+		}
+	}
+	return seeds
+}
+
+// buildTinySquashfs builds a minimal in-memory squashfs image with
+// the given compressor. Returns nil on any failure (mksquashfs
+// missing, comp unsupported, etc.) -- caller treats that as "skip
+// this seed".
+func buildTinySquashfs(comp string) []byte {
+	dir, err := os.MkdirTemp("", "snapd-fuzz-tiny-*")
+	if err != nil {
+		return nil
+	}
+	defer os.RemoveAll(dir)
+	root := filepath.Join(dir, "root")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		return nil
+	}
+	// One file, one dir -- keeps the image small (a few KB) so
+	// mutations land within the corpus's per-input cap.
+	if err := os.WriteFile(filepath.Join(root, "f"), []byte("hello squashfs"), 0o644); err != nil {
+		return nil
+	}
+	out := filepath.Join(dir, "tiny.snap")
+	cmd := exec.Command("mksquashfs", root, out, "-comp", comp,
+		"-noappend", "-no-progress", "-no-xattrs")
+	if err := cmd.Run(); err != nil {
+		return nil
+	}
+	data, err := os.ReadFile(out)
 	if err != nil {
 		return nil
 	}

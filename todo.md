@@ -21,7 +21,6 @@ audit of what we don't cover after the round of perf + correctness work. ordered
 ## xz / lzma layer
 
 - **`SingleStream` flag on `xz.Reader`.** unused / untested. dead-code unless we light it up.
-- **golden vectors.** no canonical xz files from the xz-utils test suite committed. insurance vs upstream behaviour drift.
 
 ## snap-level
 
@@ -29,5 +28,4 @@ end-to-end install correctness sits in spread tests outside what we've touched -
 
 ## priority
 
-1. golden vectors (drift insurance, cheap once gathered).
-2. SingleStream flag (low value -- decide whether to keep or strip the dead code first).
+1. SingleStream flag (low value -- decide whether to keep or strip the dead code first).

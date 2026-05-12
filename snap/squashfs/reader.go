@@ -32,8 +32,10 @@ import (
 	"time"
 
 	"github.com/klauspost/compress/zstd"
+	"github.com/pierrec/lz4/v4"
 	lzo "github.com/rasky/go-lzo"
-	"github.com/ulikunitz/xz"
+	"github.com/snapcore/snapd/snap/squashfs/xz"
+	"github.com/snapcore/snapd/snap/squashfs/xz/lzma"
 )
 
 // nativeReader is a pure-Go squashfs reader backed by an io.ReaderAt.
@@ -69,8 +71,10 @@ type superblock struct {
 
 const (
 	compGzip = 1
+	compLzma = 2
 	compLzo  = 3
 	compXz   = 4
+	compLz4  = 5
 	compZstd = 6
 )
 
@@ -213,6 +217,31 @@ func (r *nativeReader) decompress(data []byte) ([]byte, error) {
 		// metadata blocks it's at most 8KB. pass 0 here -- the
 		// decoder grows the buffer as it goes when outLen is 0.
 		return lzo.Decompress1X(bytes.NewReader(data), len(data), 0)
+	case compLzma:
+		// squashfs lzma blocks are raw lzma streams (legacy format,
+		// pre-xz). ulikunitz/xz/lzma.Reader handles the alone-format
+		// 13-byte header used by the old squashfs encoder.
+		rd, err := lzma.NewReader(bytes.NewReader(data))
+		if err != nil {
+			return nil, err
+		}
+		return io.ReadAll(rd)
+	case compLz4:
+		// squashfs lz4 blocks are raw lz4 blocks (no frame). the
+		// decompressed size is bounded by BlockSize for data blocks
+		// and 8KB for metadata; use BlockSize as the ceiling, falling
+		// back to 8KB if BlockSize is zero (metadata-block decode
+		// before the superblock is fully parsed -- unusual but safe).
+		max := int(r.sb.BlockSize)
+		if max < 8192 {
+			max = 8192
+		}
+		out := make([]byte, max)
+		n, err := lz4.UncompressBlock(data, out)
+		if err != nil {
+			return nil, err
+		}
+		return out[:n], nil
 	default:
 		return nil, fmt.Errorf("unsupported compression type: %d", r.sb.Compression)
 	}

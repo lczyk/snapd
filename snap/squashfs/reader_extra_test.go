@@ -9,9 +9,12 @@ import (
 	"encoding/binary"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/pierrec/lz4/v4"
 )
 
 // memReaderAt is a minimal io.ReaderAt over a byte slice, for readU16At.
@@ -127,8 +130,8 @@ func TestNativeReaderModTime(t *testing.T) {
 }
 
 func TestDecompressUnsupported(t *testing.T) {
-	// compression code 2 is lzma -- not supported by the native reader
-	r := &nativeReader{sb: superblock{Compression: 2}}
+	// no codec at id 0; exercises the default branch.
+	r := &nativeReader{sb: superblock{Compression: 0}}
 	if _, err := r.decompress([]byte{0, 0, 0, 0}); err == nil {
 		t.Fatal("expected error for unsupported compression")
 	}
@@ -142,6 +145,7 @@ func TestDecompressBadData(t *testing.T) {
 		{"gzip", compGzip},
 		{"xz", compXz},
 		{"zstd", compZstd},
+		{"lzma", compLzma},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -234,6 +238,66 @@ func TestReadDirEmpty(t *testing.T) {
 	}
 	if entries != nil {
 		t.Errorf("want nil, got %v", entries)
+	}
+}
+
+// compressLzma shells out to the lzma CLI to produce a legacy
+// lzma-alone stream (squashfs compression code 2). the vendored
+// snap/squashfs/xz/lzma package is reader-only, so we rely on the
+// system lzma binary (part of xz-utils) for the encoder side.
+func compressLzma(data []byte) []byte {
+	cmd := exec.Command("lzma", "-c", "-z")
+	cmd.Stdin = bytes.NewReader(data)
+	out, err := cmd.Output()
+	if err != nil {
+		panic("lzma CLI: " + err.Error())
+	}
+	return out
+}
+
+// compressLz4Block produces a raw lz4 block (no frame), matching the
+// squashfs on-disk encoding for compression code 5.
+func compressLz4Block(data []byte) []byte {
+	out := make([]byte, lz4.CompressBlockBound(len(data)))
+	var c lz4.Compressor
+	n, err := c.CompressBlock(data, out)
+	if err != nil {
+		panic(err)
+	}
+	if n == 0 {
+		// incompressible: squashfs stores raw in that case, but for
+		// the test we just want non-empty compressed output -- pick
+		// a payload that compresses.
+		panic("payload did not compress; pick a more repetitive input")
+	}
+	return out[:n]
+}
+
+func TestDecompressRoundtrip(t *testing.T) {
+	payload := []byte(bytes.Repeat([]byte("squashfs roundtrip test payload\n"), 64))
+
+	cases := []struct {
+		name string
+		comp uint16
+		enc  func([]byte) []byte
+	}{
+		{"gzip", compGzip, compressGzip},
+		{"xz", compXz, compressXZ},
+		{"zstd", compZstd, compressZstd},
+		{"lzma", compLzma, compressLzma},
+		{"lz4", compLz4, compressLz4Block},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			r := &nativeReader{sb: superblock{Compression: tc.comp, BlockSize: 131072}}
+			got, err := r.decompress(tc.enc(payload))
+			if err != nil {
+				t.Fatalf("decompress: %v", err)
+			}
+			if !bytes.Equal(got, payload) {
+				t.Errorf("roundtrip mismatch: got %d bytes, want %d", len(got), len(payload))
+			}
+		})
 	}
 }
 

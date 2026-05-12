@@ -16,12 +16,11 @@ import (
 	"bytes"
 	"compress/zlib"
 	"encoding/binary"
-	"fmt"
+	"os/exec"
 	"reflect"
 	"testing"
 
 	"github.com/klauspost/compress/zstd"
-	"github.com/ulikunitz/xz"
 )
 
 func TestReadBlockSizes(t *testing.T) {
@@ -259,22 +258,25 @@ func compressGzip(data []byte) []byte {
 	return buf.Bytes()
 }
 
+// compressXZ shells out to the xz CLI because the vendored xz package
+// is reader-only -- there's no Writer in snap/squashfs/xz. the CLI is
+// always available on systems that ship squashfs-tools, so this is a
+// safe test-time dependency.
 func compressXZ(data []byte) []byte {
-	var buf bytes.Buffer
-	w, err := xz.NewWriter(&buf)
+	cmd := exec.Command("xz", "-c", "-z")
+	cmd.Stdin = bytes.NewReader(data)
+	out, err := cmd.Output()
 	if err != nil {
-		panic(fmt.Sprintf("xz writer: %v", err))
+		panic("xz CLI: " + err.Error())
 	}
-	w.Write(data)
-	w.Close()
-	return buf.Bytes()
+	return out
 }
 
 func compressZstd(data []byte) []byte {
 	var buf bytes.Buffer
 	w, err := zstd.NewWriter(&buf)
 	if err != nil {
-		panic(fmt.Sprintf("zstd writer: %v", err))
+		panic("zstd writer: " + err.Error())
 	}
 	w.Write(data)
 	w.Close()

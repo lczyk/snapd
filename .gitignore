@@ -117,6 +117,7 @@ cmd/test-driver
 # Built binaries at repo root
 /snapd
 /squashfs.test
+/xz.test
 
 # Directory that is used by the run-spread script
 /built-snap

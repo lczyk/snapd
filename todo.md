@@ -28,7 +28,6 @@ audit of what we don't cover after the round of perf + correctness work. ordered
 
 ## squashfs layer
 
-- **squashfs-level fuzzer.** we fuzz the xz decoder. we do _not_ fuzz `nativeReader` against arbitrary squashfs bytes -- malformed superblock / inode / dir entries. real attack surface.
 - **fixture w/ non-xz comps for the native benches.** only xz fixture today; won't catch comp-specific regressions in `walkDir` / `extractAll`.
 - **race detector on heavier paths.** `TestConcurrentDecode` (xz) under `-race` only. nothing exercises `extractFiles`' worker-pool path concurrently under `-race`.
 - **bench correctness.** xz benches do `io.Copy(io.Discard, r)` -- timing only, never validates bytes. wouldn't catch a regression that produced corrupt output at full throughput.
@@ -39,8 +38,7 @@ end-to-end install correctness sits in spread tests outside what we've touched -
 
 ## priority
 
-1. squashfs-level fuzzer (highest real-world risk).
-2. multi-block xz fixture + test (correctness on legal-but-uncommon shapes).
-3. check-type matrix for xz (cheap, catches lurking bugs in CRC64 / SHA-256 / None paths).
-4. golden vectors (drift insurance, cheap once gathered).
-5. bench validation (cheap; skippable if differential / fuzz suite is trusted).
+1. multi-block xz fixture + test (correctness on legal-but-uncommon shapes).
+2. check-type matrix for xz (cheap, catches lurking bugs in CRC64 / SHA-256 / None paths).
+3. golden vectors (drift insurance, cheap once gathered).
+4. bench validation (cheap; skippable if differential / fuzz suite is trusted).

@@ -20,13 +20,8 @@ audit of what we don't cover after the round of perf + correctness work. ordered
 
 ## xz / lzma layer
 
-- **non-LZMA2 filters.** xz format permits BCJ / delta filter chains. `verifyFilters` rejects anything other than LZMA2-last; no test confirms the error path. should fail cleanly, not panic.
 - **`SingleStream` flag on `xz.Reader`.** unused / untested. dead-code unless we light it up.
 - **golden vectors.** no canonical xz files from the xz-utils test suite committed. insurance vs upstream behaviour drift.
-
-## squashfs layer
-
-- **fixture w/ non-xz comps for the native benches.** only xz fixture today; won't catch comp-specific regressions in `walkDir` / `extractAll`.
 
 ## snap-level
 
@@ -35,5 +30,4 @@ end-to-end install correctness sits in spread tests outside what we've touched -
 ## priority
 
 1. golden vectors (drift insurance, cheap once gathered).
-2. non-LZMA2 filter reject path.
-3. non-xz fixture variants for native benches.
+2. SingleStream flag (low value -- decide whether to keep or strip the dead code first).

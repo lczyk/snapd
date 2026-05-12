@@ -25,7 +25,26 @@ type nativeFixture struct {
 	err  error
 }
 
-var fixtureXZ nativeFixture
+var (
+	fixtureXZ   nativeFixture
+	fixtureGzip nativeFixture
+	fixtureZstd nativeFixture
+)
+
+// fixtureFor returns the lazily-built fixture for the requested
+// compressor. Adding new comps means adding a new var above + a
+// case here.
+func fixtureFor(comp string) *nativeFixture {
+	switch comp {
+	case "xz":
+		return &fixtureXZ
+	case "gzip":
+		return &fixtureGzip
+	case "zstd":
+		return &fixtureZstd
+	}
+	return nil
+}
 
 // build constructs a ~100-file squashfs image with nested directories
 // at the given compression. Returns the image path. Caller is
@@ -71,16 +90,58 @@ func (f *nativeFixture) build(comp string) {
 
 func openNativeFixture(b *testing.B, comp string) *nativeReader {
 	b.Helper()
-	fixtureXZ.once.Do(func() { fixtureXZ.build(comp) })
-	if fixtureXZ.err != nil {
-		b.Skip(fixtureXZ.err)
+	f := fixtureFor(comp)
+	if f == nil {
+		b.Fatalf("no fixture defined for comp=%q", comp)
 	}
-	r, closer, err := newNativeReader(fixtureXZ.path)
+	f.once.Do(func() { f.build(comp) })
+	if f.err != nil {
+		b.Skip(f.err)
+	}
+	r, closer, err := newNativeReader(f.path)
 	if err != nil {
 		b.Fatalf("newNativeReader: %v", err)
 	}
 	b.Cleanup(func() { _ = closer() })
 	return r
+}
+
+// BenchmarkExtractAllComps drives extractAll across all built-in
+// compressors so a regression in any one comp's decompress path
+// shows up in the bench output. The xz variant is the same shape
+// as BenchmarkExtractAll; the gzip / zstd variants share the
+// fixture builder.
+func BenchmarkExtractAllComps(b *testing.B) {
+	for _, comp := range []string{"xz", "gzip", "zstd"} {
+		b.Run(comp, func(b *testing.B) {
+			r := openNativeFixture(b, comp)
+			b.ResetTimer()
+			for b.Loop() {
+				dest := b.TempDir()
+				if err := r.extractAll(dest); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+	}
+}
+
+// BenchmarkWalkDirComps mirrors BenchmarkWalkDir across comps.
+func BenchmarkWalkDirComps(b *testing.B) {
+	for _, comp := range []string{"xz", "gzip", "zstd"} {
+		b.Run(comp, func(b *testing.B) {
+			r := openNativeFixture(b, comp)
+			b.ResetTimer()
+			for b.Loop() {
+				err := r.walkDir(r.sb.RootInodeRef, "/", func(string, os.FileInfo, error) error {
+					return nil
+				})
+				if err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+	}
 }
 
 // BenchmarkReadMetadataBlocks measures the hot metadata-block read

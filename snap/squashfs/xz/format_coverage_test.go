@@ -108,6 +108,44 @@ func TestRejectsCorruptedBlockChecksum(t *testing.T) {
 	}
 }
 
+// TestRejectsNonLZMA2Filter takes a valid xz stream and flips the
+// filter ID in the block header from LZMA2 (0x21) to something
+// else. The decoder must reject this -- our fork's verifyFilters
+// only allows LZMA2-last; other filter IDs (delta, BCJ, etc.) are
+// not supported. Without this cover the rejection path runs in
+// fuzz only by accident.
+//
+// Note: changing the byte invalidates the block-header CRC32, so
+// the decoder will reject either via filter-ID rejection or via
+// the CRC mismatch first. Either error is acceptable here -- the
+// guarantee is "no panic, no decode of bogus filter".
+func TestRejectsNonLZMA2Filter(t *testing.T) {
+	payload := mkPayload(4096)
+	blob := compressXZ(payload)
+	corrupted := append([]byte(nil), blob...)
+
+	// Stream header is 12 bytes, then block header starts:
+	//   offset 12: header size byte
+	//   offset 13: block flags
+	//   offset 14: first filter ID
+	if len(corrupted) < 16 {
+		t.Fatalf("blob too short to corrupt: %d", len(corrupted))
+	}
+	if corrupted[14] != 0x21 {
+		t.Fatalf("unexpected filter ID at offset 14: %#x (expected LZMA2 0x21)", corrupted[14])
+	}
+	corrupted[14] = 0x03 // delta filter ID -- not supported by fork
+
+	r, err := xz.NewReader(bytes.NewReader(corrupted))
+	if err != nil {
+		return // rejected at construction -- good
+	}
+	_, err = io.ReadAll(r)
+	if err == nil {
+		t.Fatal("expected error decoding stream with non-LZMA2 filter, got nil")
+	}
+}
+
 // compressXZWithCheck encodes payload as xz with the given integrity
 // check type. Uses the upstream encoder since our fork is decode-
 // only.

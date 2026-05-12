@@ -44,11 +44,15 @@ func TestExtractAllConcurrent(t *testing.T) {
 // the test if mksquashfs isn't on $PATH.
 func openNativeFixtureT(t *testing.T, comp string) *nativeReader {
 	t.Helper()
-	fixtureXZ.once.Do(func() { fixtureXZ.build(comp) })
-	if fixtureXZ.err != nil {
-		t.Skip(fixtureXZ.err)
+	f := fixtureFor(comp)
+	if f == nil {
+		t.Fatalf("no fixture defined for comp=%q", comp)
 	}
-	r, closer, err := newNativeReader(fixtureXZ.path)
+	f.once.Do(func() { f.build(comp) })
+	if f.err != nil {
+		t.Skip(f.err)
+	}
+	r, closer, err := newNativeReader(f.path)
 	if err != nil {
 		t.Fatalf("newNativeReader: %v", err)
 	}

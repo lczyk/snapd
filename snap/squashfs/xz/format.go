@@ -311,36 +311,33 @@ const (
 var errIndexIndicator = errors.New("xz: found index indicator")
 
 // readBlockHeader reads the block header.
+//
+// Block headers max out at (255+1)*4 = 1024 bytes. We read into a
+// stack-friendly fixed-size array instead of bytes.Buffer to avoid the
+// per-block growSlice alloc that showed up on the decode hot path.
 func readBlockHeader(r io.Reader) (h *blockHeader, n int, err error) {
-	var buf bytes.Buffer
-	buf.Grow(20)
+	var buf [1024]byte
 
-	// block header size
-	z, err := io.CopyN(&buf, r, 1)
-	n = int(z)
-	if err != nil {
-		return nil, n, err
+	// block header size byte
+	if _, err = io.ReadFull(r, buf[:1]); err != nil {
+		return nil, 0, err
 	}
-	s := buf.Bytes()[0]
+	n = 1
+	s := buf[0]
 	if s == 0 {
 		return nil, n, errIndexIndicator
 	}
 
-	// read complete header
 	headerLen := (int(s) + 1) * 4
-	buf.Grow(headerLen - 1)
-	z, err = io.CopyN(&buf, r, int64(headerLen-1))
-	n += int(z)
-	if err != nil {
+	if _, err = io.ReadFull(r, buf[1:headerLen]); err != nil {
 		return nil, n, err
 	}
+	n = headerLen
 
-	// unmarshal block header
 	h = new(blockHeader)
-	if err = h.UnmarshalBinary(buf.Bytes()); err != nil {
+	if err = h.UnmarshalBinary(buf[:headerLen]); err != nil {
 		return nil, n, err
 	}
-
 	return h, n, nil
 }
 

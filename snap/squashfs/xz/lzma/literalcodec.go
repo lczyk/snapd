@@ -83,9 +83,20 @@ func (c *literalCodec) Encode(e *rangeEncoder, s byte,
 
 // Decode decodes a literal byte using the range decoder as well as the LZMA
 // state, a match byte, and the literal state.
+//
+// Both inner bit-decode loops have the range-coder body inlined to
+// avoid the per-bit method-call overhead that (*rangeDecoder).DecodeBit
+// otherwise pays. literalCodec.Decode is the single hottest function
+// on the decode path; the gain from skipping the call is worth the
+// duplication.
 func (c *literalCodec) Decode(d *rangeDecoder,
 	state uint32, match byte, litState uint32,
-) (s byte, err error) {
+) (byte, error) {
+	const (
+		topBit   = 1 << 24
+		probMax  = 1 << probbits
+		moveBits = movebits
+	)
 	k := litState * 0x300
 	probs := c.probs[k : k+0x300]
 	symbol := uint32(1)
@@ -95,9 +106,27 @@ func (c *literalCodec) Decode(d *rangeDecoder,
 			matchBit := (m >> 7) & 1
 			m <<= 1
 			i := ((1 + matchBit) << 8) | symbol
-			bit, err := d.DecodeBit(&probs[i])
-			if err != nil {
-				return 0, err
+			p := &probs[i]
+			pv := uint32(*p)
+			bound := (d.nrange >> probbits) * pv
+			var bit uint32
+			if d.code < bound {
+				d.nrange = bound
+				*p = prob(pv + (probMax-pv)>>moveBits)
+			} else {
+				d.code -= bound
+				d.nrange -= bound
+				*p = prob(pv - pv>>moveBits)
+				bit = 1
+			}
+			if d.nrange < topBit {
+				d.nrange <<= 8
+				if d.pos < len(d.data) {
+					d.code = (d.code << 8) | uint32(d.data[d.pos])
+					d.pos++
+				} else if err := d.updateCodeSlow(); err != nil {
+					return 0, err
+				}
 			}
 			symbol = (symbol << 1) | bit
 			if matchBit != bit {
@@ -109,14 +138,31 @@ func (c *literalCodec) Decode(d *rangeDecoder,
 		}
 	}
 	for symbol < 0x100 {
-		bit, err := d.DecodeBit(&probs[symbol])
-		if err != nil {
-			return 0, err
+		p := &probs[symbol]
+		pv := uint32(*p)
+		bound := (d.nrange >> probbits) * pv
+		var bit uint32
+		if d.code < bound {
+			d.nrange = bound
+			*p = prob(pv + (probMax-pv)>>moveBits)
+		} else {
+			d.code -= bound
+			d.nrange -= bound
+			*p = prob(pv - pv>>moveBits)
+			bit = 1
+		}
+		if d.nrange < topBit {
+			d.nrange <<= 8
+			if d.pos < len(d.data) {
+				d.code = (d.code << 8) | uint32(d.data[d.pos])
+				d.pos++
+			} else if err := d.updateCodeSlow(); err != nil {
+				return 0, err
+			}
 		}
 		symbol = (symbol << 1) | bit
 	}
-	s = byte(symbol - 0x100)
-	return s, nil
+	return byte(symbol - 0x100), nil
 }
 
 // minLC and maxLC define the range for LC values.

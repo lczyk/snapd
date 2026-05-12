@@ -125,8 +125,17 @@ func (e *rangeEncoder) shiftLow() error {
 }
 
 // rangeDecoder decodes single bits of the range encoding stream.
+//
+// On the squashfs decode hot path the range decoder is fed a
+// pre-buffered chunk slice (see Reader2.startChunk). The legacy
+// io.ByteReader path is retained for callers that stream byte-by-byte
+// (the lzma-alone format reader). When `data != nil` the fast path
+// reads directly from the slice; otherwise updateCode falls back to
+// br.ReadByte.
 type rangeDecoder struct {
 	br     io.ByteReader
+	data   []byte
+	pos    int
 	nrange uint32
 	code   uint32
 }
@@ -134,9 +143,19 @@ type rangeDecoder struct {
 // newRangeDecoder initializes a range decoder. It reads five bytes from the
 // reader and therefore may return an error.
 func newRangeDecoder(br io.ByteReader) (d *rangeDecoder, err error) {
-	d = &rangeDecoder{br: br, nrange: 0xffffffff}
+	// If the underlying reader is our sliceByteReader, hand the
+	// rangeDecoder direct slice access so updateCode can bypass the
+	// io.ByteReader interface call on the per-byte path.
+	if sr, ok := br.(*sliceByteReader); ok {
+		d = &rangeDecoder{
+			data:   sr.data[sr.pos:],
+			nrange: 0xffffffff,
+		}
+	} else {
+		d = &rangeDecoder{br: br, nrange: 0xffffffff}
+	}
 
-	b, err := d.br.ReadByte()
+	b, err := d.readByte()
 	if err != nil {
 		return nil, err
 	}
@@ -155,6 +174,20 @@ func newRangeDecoder(br io.ByteReader) (d *rangeDecoder, err error) {
 	}
 
 	return d, nil
+}
+
+// readByte returns the next byte from either the direct slice or the
+// fallback io.ByteReader.
+func (d *rangeDecoder) readByte() (byte, error) {
+	if d.data != nil {
+		if d.pos >= len(d.data) {
+			return 0, io.EOF
+		}
+		c := d.data[d.pos]
+		d.pos++
+		return c, nil
+	}
+	return d.br.ReadByte()
 }
 
 // possiblyAtEnd checks whether the decoder may be at the end of the stream.
@@ -185,34 +218,151 @@ func (d *rangeDecoder) DirectDecodeBit() (b uint32, err error) {
 	return b, d.updateCode()
 }
 
-// decodeBit decodes a single bit. The bit will be returned at the
+// DecodeBit decodes a single bit. The bit will be returned at the
 // least-significant position. All other bits will be zero. The probability
 // value will be updated.
-func (d *rangeDecoder) DecodeBit(p *prob) (b uint32, err error) {
-	bound := p.bound(d.nrange)
+//
+// Hand-inlined hot path: prob.bound / prob.inc / prob.dec are folded
+// into this body, and the common-case slice-backed refill (one byte
+// from d.data) is inlined too. The legacy io.ByteReader path is
+// kicked out to updateCodeSlow so the hot body stays within the Go
+// inliner's budget for callers.
+func (d *rangeDecoder) DecodeBit(p *prob) (uint32, error) {
+	const (
+		topBit   = 1 << 24
+		probMax  = 1 << probbits
+		moveBits = movebits
+	)
+	pv := uint32(*p)
+	bound := (d.nrange >> probbits) * pv
+	var b uint32
 	if d.code < bound {
 		d.nrange = bound
-		p.inc()
-		b = 0
+		*p = prob(pv + (probMax-pv)>>moveBits)
 	} else {
 		d.code -= bound
 		d.nrange -= bound
-		p.dec()
+		*p = prob(pv - pv>>moveBits)
 		b = 1
 	}
-	// normalize
-	// assume d.code < d.nrange
-	const top = 1 << 24
-	if d.nrange >= top {
+	if d.nrange >= topBit {
 		return b, nil
 	}
 	d.nrange <<= 8
-	// d.code < d.nrange will be maintained
-	return b, d.updateCode()
+	if d.pos < len(d.data) {
+		d.code = (d.code << 8) | uint32(d.data[d.pos])
+		d.pos++
+		return b, nil
+	}
+	return b, d.updateCodeSlow()
 }
 
-// updateCode reads a new byte into the code.
+// decodeTree decodes a fixed-bit-size MSB-first value using the given
+// probs slice. The hot inner loop is the inlined range-coder bit
+// decode -- skipping the per-bit method-call overhead that
+// (*rangeDecoder).DecodeBit otherwise pays. Probs is expected to be
+// sized to (1<<bits) at minimum.
+func (d *rangeDecoder) decodeTree(probs []prob, bits int) (uint32, error) {
+	const (
+		topBit   = 1 << 24
+		probMax  = 1 << probbits
+		moveBits = movebits
+	)
+	m := uint32(1)
+	for j := 0; j < bits; j++ {
+		p := &probs[m]
+		pv := uint32(*p)
+		bound := (d.nrange >> probbits) * pv
+		var b uint32
+		if d.code < bound {
+			d.nrange = bound
+			*p = prob(pv + (probMax-pv)>>moveBits)
+		} else {
+			d.code -= bound
+			d.nrange -= bound
+			*p = prob(pv - pv>>moveBits)
+			b = 1
+		}
+		if d.nrange < topBit {
+			d.nrange <<= 8
+			if d.pos < len(d.data) {
+				d.code = (d.code << 8) | uint32(d.data[d.pos])
+				d.pos++
+			} else if err := d.updateCodeSlow(); err != nil {
+				return 0, err
+			}
+		}
+		m = (m << 1) | b
+	}
+	return m - (1 << uint(bits)), nil
+}
+
+// decodeTreeReverse decodes a fixed-bit-size LSB-first value using the
+// given probs slice. Inlined range-coder body matches decodeTree.
+func (d *rangeDecoder) decodeTreeReverse(probs []prob, bits int) (uint32, error) {
+	const (
+		topBit   = 1 << 24
+		probMax  = 1 << probbits
+		moveBits = movebits
+	)
+	m := uint32(1)
+	var v uint32
+	for j := uint(0); j < uint(bits); j++ {
+		p := &probs[m]
+		pv := uint32(*p)
+		bound := (d.nrange >> probbits) * pv
+		var b uint32
+		if d.code < bound {
+			d.nrange = bound
+			*p = prob(pv + (probMax-pv)>>moveBits)
+		} else {
+			d.code -= bound
+			d.nrange -= bound
+			*p = prob(pv - pv>>moveBits)
+			b = 1
+		}
+		if d.nrange < topBit {
+			d.nrange <<= 8
+			if d.pos < len(d.data) {
+				d.code = (d.code << 8) | uint32(d.data[d.pos])
+				d.pos++
+			} else if err := d.updateCodeSlow(); err != nil {
+				return 0, err
+			}
+		}
+		m = (m << 1) | b
+		v |= b << j
+	}
+	return v, nil
+}
+
+// updateCodeSlow handles the io.ByteReader fallback path for the rare
+// legacy lzma-alone reader; the slice-backed hot path inlines its
+// equivalent directly into DecodeBit.
+func (d *rangeDecoder) updateCodeSlow() error {
+	if d.data != nil {
+		return io.EOF
+	}
+	bb, err := d.br.ReadByte()
+	if err != nil {
+		return err
+	}
+	d.code = (d.code << 8) | uint32(bb)
+	return nil
+}
+
+// updateCode reads a new byte into the code. Fast path uses direct
+// slice indexing; the io.ByteReader path is only used for the legacy
+// lzma-alone format reader.
 func (d *rangeDecoder) updateCode() error {
+	if d.data != nil {
+		if d.pos >= len(d.data) {
+			return io.EOF
+		}
+		d.code = (d.code << 8) | uint32(d.data[d.pos])
+		d.pos++
+		return nil
+	}
 	b, err := d.br.ReadByte()
 	if err != nil {
 		return err

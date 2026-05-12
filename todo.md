@@ -20,8 +20,6 @@ audit of what we don't cover after the round of perf + correctness work. ordered
 
 ## xz / lzma layer
 
-- **multi-block xz within a single stream.** legal per the format (`xz --block-size=N`) but upstream's default `Writer` emits one block per stream. our fork's `streamReader.Read` loop walks block-to-block; only the single-block path is exercised. needs a crafted fixture.
-- **xz check types.** we test the default crc only. xz spec allows none / CRC32 / CRC64 / SHA-256. fork has `none-check.go` + crc paths; CRC64 and SHA-256 paths likely never run. easy to cover -- upstream `WriterConfig.CheckSum` exposes the knob.
 - **non-LZMA2 filters.** xz format permits BCJ / delta filter chains. `verifyFilters` rejects anything other than LZMA2-last; no test confirms the error path. should fail cleanly, not panic.
 - **`SingleStream` flag on `xz.Reader`.** unused / untested. dead-code unless we light it up.
 - **golden vectors.** no canonical xz files from the xz-utils test suite committed. insurance vs upstream behaviour drift.
@@ -38,7 +36,7 @@ end-to-end install correctness sits in spread tests outside what we've touched -
 
 ## priority
 
-1. multi-block xz fixture + test (correctness on legal-but-uncommon shapes).
-2. check-type matrix for xz (cheap, catches lurking bugs in CRC64 / SHA-256 / None paths).
-3. golden vectors (drift insurance, cheap once gathered).
-4. bench validation (cheap; skippable if differential / fuzz suite is trusted).
+1. golden vectors (drift insurance, cheap once gathered).
+2. non-LZMA2 filter reject path.
+3. bench validation (cheap; skippable if differential / fuzz suite is trusted).
+4. non-xz fixture variants for native benches.

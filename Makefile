@@ -210,6 +210,19 @@ unit:  ## Run go unit tests across all packages with the race detector
 bench:  ## Run benchmarks (override scope/duration: PKG=… BENCH=… BENCHTIME=…)
 	go test -run '^$$' -bench '$(or $(BENCH),.)' -benchmem -benchtime '$(or $(BENCHTIME),1s)' $(or $(PKG),./...)
 
+.PHONY: fuzz
+fuzz:  ## Run fuzz tests (override scope/duration: PKG=... FUZZ=... FUZZTIME=...)
+	@set -e; \
+	pkgs="$(or $(PKG),./...)"; \
+	pattern="$(or $(FUZZ),Fuzz)"; \
+	for p in $$(go list $$pkgs); do \
+	    names=$$(go test -list "$$pattern" $$p 2>/dev/null | grep '^Fuzz' || true); \
+	    for f in $$names; do \
+	        echo "===> $$p $$f"; \
+	        go test -run '^$$' -fuzz "^$$f$$" -fuzztime '$(or $(FUZZTIME),30s)' $$p; \
+	    done; \
+	done
+
 .PHONY: cover
 cover:  ## Coverage profile + HTML file (cover.out, cover.html)
 	go test -coverpkg=./... -coverprofile=cover.out -race ./...

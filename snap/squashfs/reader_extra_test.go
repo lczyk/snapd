@@ -9,12 +9,14 @@ import (
 	"encoding/binary"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/pierrec/lz4/v4"
+	// test-only: upstream lzma has a Writer; our vendored
+	// snap/squashfs/xz/lzma fork is reader-only.
+	"github.com/ulikunitz/xz/lzma"
 )
 
 // memReaderAt is a minimal io.ReaderAt over a byte slice, for readU16At.
@@ -241,18 +243,22 @@ func TestReadDirEmpty(t *testing.T) {
 	}
 }
 
-// compressLzma shells out to the lzma CLI to produce a legacy
-// lzma-alone stream (squashfs compression code 2). the vendored
-// snap/squashfs/xz/lzma package is reader-only, so we rely on the
-// system lzma binary (part of xz-utils) for the encoder side.
+// compressLzma uses upstream ulikunitz/xz/lzma for its Writer to
+// produce a legacy lzma-alone stream (squashfs compression code 2).
+// the vendored snap/squashfs/xz/lzma fork is reader-only.
 func compressLzma(data []byte) []byte {
-	cmd := exec.Command("lzma", "-c", "-z")
-	cmd.Stdin = bytes.NewReader(data)
-	out, err := cmd.Output()
+	var buf bytes.Buffer
+	w, err := lzma.NewWriter(&buf)
 	if err != nil {
-		panic("lzma CLI: " + err.Error())
+		panic(err)
 	}
-	return out
+	if _, err := w.Write(data); err != nil {
+		panic(err)
+	}
+	if err := w.Close(); err != nil {
+		panic(err)
+	}
+	return buf.Bytes()
 }
 
 // compressLz4Block produces a raw lz4 block (no frame), matching the

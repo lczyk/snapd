@@ -16,11 +16,14 @@ import (
 	"bytes"
 	"compress/zlib"
 	"encoding/binary"
-	"os/exec"
 	"reflect"
 	"testing"
 
 	"github.com/klauspost/compress/zstd"
+	// test-only: upstream xz has a Writer; our vendored
+	// snap/squashfs/xz fork is reader-only. production code stays on
+	// the vendored fork.
+	"github.com/ulikunitz/xz"
 )
 
 func TestReadBlockSizes(t *testing.T) {
@@ -258,18 +261,18 @@ func compressGzip(data []byte) []byte {
 	return buf.Bytes()
 }
 
-// compressXZ shells out to the xz CLI because the vendored xz package
-// is reader-only -- there's no Writer in snap/squashfs/xz. the CLI is
-// always available on systems that ship squashfs-tools, so this is a
-// safe test-time dependency.
+// compressXZ uses upstream ulikunitz/xz for its Writer. our vendored
+// snap/squashfs/xz fork is reader-only, but the upstream package is
+// kept in go.mod purely for these test-time encoders.
 func compressXZ(data []byte) []byte {
-	cmd := exec.Command("xz", "-c", "-z")
-	cmd.Stdin = bytes.NewReader(data)
-	out, err := cmd.Output()
+	var buf bytes.Buffer
+	w, err := xz.NewWriter(&buf)
 	if err != nil {
-		panic("xz CLI: " + err.Error())
+		panic("xz writer: " + err.Error())
 	}
-	return out
+	w.Write(data)
+	w.Close()
+	return buf.Bytes()
 }
 
 func compressZstd(data []byte) []byte {
